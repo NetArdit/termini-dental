@@ -1,0 +1,24 @@
+node_modules/
+dist/
+# Local database (holds patient data — never commit it)
+data/
+.env
+.env.*
+!.env.example
+*.log
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Notes for the reviewing assistant, kept local
+reports/gatekeeper-memory.md
+
+# Screenshots and reports of the browser audit
+e2e/artifacts/
+
+# Backups hold patient data in the clear (never commit them)
+backups/
+*.backup.json
+
+# Netlify CLI state of this machine
+.netlify/

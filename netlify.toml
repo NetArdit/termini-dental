@@ -1,0 +1,49 @@
+# Netlify: the pages are published as files, the API runs as one function, housekeeping runs on a schedule.
+# This describes a STAGING site. See docs/OPERATIONS.md, "Netlify (staging)", before pointing it at real data.
+
+[build]
+  command = "npm run build"
+  publish = "dist/web"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+# Reminders, mail retries, expired counters. Hourly, not every ten minutes as on a long-running server:
+# every run wakes the database, and the free database plan counts the minutes it is awake.
+[functions."housekeeping"]
+  schedule = "@hourly"
+
+# The API. `force` so that no published file can ever answer in its place.
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+  force = true
+
+# A script or style of an earlier release that is no longer there is a 404, never the page: an old tab
+# asking for it must not get HTML back.
+[[redirects]]
+  from = "/assets/*"
+  to = "/not-found.txt"
+  status = 404
+
+# Every other address is the single-page app.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# The same headers the server sets itself when it serves the pages (src/server/app.ts).
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "same-origin"
+
+# Named after their content, so a name never changes meaning: a browser may keep them for a year.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

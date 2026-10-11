@@ -1,0 +1,161 @@
+@import "tailwindcss";
+
+/* The two typefaces are served from this site, not from a font service: a patient's browser talks to nobody
+   else while booking. Both are under the SIL Open Font License (public/licenses). Latin covers Albanian;
+   the latin-ext files are fetched only when a name needs them (š, ž, đ ...). */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/inter-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/inter-latin-ext-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Fraunces";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/fraunces-latin-opsz-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Fraunces";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/fraunces-latin-ext-opsz-normal.woff2") format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* Design tokens. One brand colour (a deep clinical teal), warm paper neutrals, and semantic colours that
+   are only ever used for their meaning. Text colours are chosen to meet WCAG AA on paper, on white and on
+   brand-50; ink-faint, the lightest, measures 4.92, 5.36 and 4.88 to 1. */
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Fraunces", ui-serif, Georgia, "Times New Roman", serif;
+
+  --color-paper: #f7f5f0;
+  --color-surface: #ffffff;
+  --color-line: #e4dfd5;
+  --color-line-strong: #cdc6b8;
+  --color-ink: #17201f;
+  --color-ink-soft: #4a5654;
+  --color-ink-faint: #626d6b;
+
+  --color-brand-50: #eef6f5;
+  --color-brand-100: #d5e9e7;
+  --color-brand-200: #a9d2ce;
+  --color-brand-500: #1f7a75;
+  --color-brand-600: #17645f;
+  --color-brand-700: #0f4c4a;
+  --color-brand-900: #0a2f2e;
+
+  --color-ok-bg: #e6f4ea;
+  --color-ok-fg: #1d5e33;
+  --color-warn-bg: #fdf1d7;
+  --color-warn-fg: #7a4d06;
+  --color-danger-bg: #fbe6e3;
+  --color-danger-fg: #992b1f;
+  --color-danger-600: #b83a2c;
+  --color-info-bg: #e7eefb;
+  --color-info-fg: #26458f;
+
+  --shadow-card: 0 1px 2px rgb(23 32 31 / 0.04), 0 4px 16px rgb(23 32 31 / 0.05);
+  --shadow-pop: 0 8px 40px rgb(23 32 31 / 0.18);
+}
+
+@layer base {
+  html {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    min-height: 100dvh;
+    font-family: var(--font-sans);
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  /* One visible focus style everywhere, for keyboard users. */
+  :focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  button,
+  [role="button"],
+  summary,
+  select {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  /* Fingers need more room than a mouse pointer. On a touch screen every control is at least 44 px in both
+     directions, whatever size it has on a desktop. Links inside a sentence are left as text. */
+  @media (pointer: coarse) {
+    button,
+    select,
+    summary,
+    [role="tab"],
+    input:not([type="checkbox"]):not([type="radio"]) {
+      min-height: 44px;
+    }
+    button {
+      min-width: 44px;
+    }
+    /* A checkbox is pressed through its label: the whole label is the target, and the box itself is
+       large enough to see what was pressed. */
+    label:has(> input[type="checkbox"]),
+    label:has(> input[type="radio"]) {
+      min-height: 44px;
+    }
+    input[type="checkbox"],
+    input[type="radio"] {
+      width: 22px;
+      height: 22px;
+      flex-shrink: 0;
+    }
+    /* A link that stands on its own (back to the list, a phone number to call), marked with .tap. */
+    a.tap {
+      display: inline-flex;
+      align-items: center;
+      min-height: 44px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@utility animate-rise {
+  animation: rise 0.25s ease-out both;
+}

@@ -1,0 +1,52 @@
+{
+  "name": "termini-dental",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"tsx watch --liftoff-only src/server/main.ts\" \"vite\"",
+    "build": "vite build",
+    "start": "tsx --liftoff-only src/server/main.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "seed": "tsx --liftoff-only src/server/seed.ts",
+    "db:migrate": "tsx --liftoff-only src/server/cli.ts migrate",
+    "db:backup": "tsx --liftoff-only src/server/cli.ts backup",
+    "db:verify-backup": "tsx --liftoff-only src/server/cli.ts verify-backup",
+    "db:restore": "tsx --liftoff-only src/server/cli.ts restore"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "compression": "^1.8.2",
+    "cookie-parser": "^1.4.7",
+    "express": "^5.3.0",
+    "luxon": "^3.7.2",
+    "nodemailer": "^10.0.16",
+    "pg": "^8.23.1",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router-dom": "^7.18.4",
+    "serverless-http": "^4.0.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/compression": "^1.8.1",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/express": "^5.0.6",
+    "@types/luxon": "^3.7.6",
+    "@types/node": "^26.6.5",
+    "@types/nodemailer": "^8.0.2",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "concurrently": "^10.0.6",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.3"
+  }
+}

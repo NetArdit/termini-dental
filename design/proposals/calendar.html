@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="sq">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Propozim: kalendari si orar i ditës</title>
+<link rel="stylesheet" href="proposal.css" />
+<style>
+  .app { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+  aside { background: var(--surface); border-right: 1px solid var(--line); padding: 24px 12px; }
+  aside nav { margin-top: 28px; display: grid; gap: 4px; }
+  aside nav a { padding: 8px 12px; border-radius: 8px; font-size: 14px; font-weight: 500; color: var(--ink-soft); }
+  aside nav a.on { background: var(--brand-700); color: #fff; }
+  main { padding: 32px; max-width: 1180px; }
+  .head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+  .head h1 { font-size: 30px; }
+  /* 1. The week at a glance: how full each day is, before opening it. */
+  .week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin: 20px 0 16px; }
+  .week .d { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 12px; padding: 8px 10px; }
+  .week .d.on { background: var(--brand-700); border-color: var(--brand-700); color: #fff; }
+  .week .d.off { background: transparent; border-color: transparent; color: var(--ink-faint); }
+  .week .d b { display: block; font-size: 18px; line-height: 1.2; }
+  .week .d small { font-size: 12px; }
+  .week .bar { height: 4px; border-radius: 4px; background: var(--brand-100); margin-top: 6px; overflow: hidden; }
+  .week .bar span { display: block; height: 100%; background: var(--brand-500); }
+  .week .d.on .bar { background: rgb(255 255 255 / 0.25); } .week .d.on .bar span { background: #fff; }
+  /* 2. The day as a timetable: one column per dentist, an hour is always the same height. */
+  .grid { display: grid; grid-template-columns: 56px 1fr 1fr; }
+  .grid .colhead { padding: 12px 14px; border-bottom: 1px solid var(--line); font-weight: 600; font-size: 14px; }
+  .grid .colhead small { display: block; font-weight: 400; color: var(--ink-soft); font-size: 12px; }
+  .hours { position: relative; height: 540px; border-right: 1px solid var(--line); }
+  .hours span { position: absolute; right: 8px; font-size: 12px; color: var(--ink-faint); transform: translateY(-50%); font-variant-numeric: tabular-nums; }
+  .col { position: relative; height: 540px; border-right: 1px solid var(--line); background-image: repeating-linear-gradient(to bottom, var(--line) 0 1px, transparent 1px 60px); }
+  .col:last-child { border-right: 0; }
+  .col .closed { position: absolute; left: 0; right: 0; background: repeating-linear-gradient(135deg, #f2efe8 0 6px, #f7f5f0 6px 12px); }
+  .col .closed em { position: absolute; left: 12px; top: 6px; font-style: normal; font-size: 12px; color: var(--ink-faint); }
+  .appt { position: absolute; left: 8px; right: 8px; border-radius: 10px; padding: 6px 10px; background: var(--info-bg); border-left: 4px solid var(--info-fg); overflow: hidden; font-size: 13px; }
+  .appt b { display: block; font-size: 14px; }
+  .appt.done { background: var(--ok-bg); border-left-color: var(--ok-fg); }
+  .appt.noshow { background: var(--warn-bg); border-left-color: var(--warn-fg); }
+  .free { position: absolute; left: 8px; right: 8px; border: 1px dashed var(--brand-200); border-radius: 10px; color: var(--brand-700); font-size: 12px; display: grid; place-items: center; }
+  .now { position: absolute; left: 0; right: 0; border-top: 2px solid #b83a2c; z-index: 2; }
+  .now::before { content: ""; position: absolute; left: -5px; top: -6px; width: 10px; height: 10px; border-radius: 50%; background: #b83a2c; }
+  .sum { display: flex; gap: 16px; flex-wrap: wrap; font-size: 14px; margin-bottom: 10px; }
+  @media (max-width: 700px) {
+    .app { grid-template-columns: 1fr; } aside { display: none; } main { padding: 16px; }
+    .week { gap: 4px; } .week .d { padding: 6px 4px; text-align: center; } .week .d small { font-size: 11px; }
+    .grid { grid-template-columns: 44px 1fr; } .grid .second { display: none; }
+    .tabs { display: flex; gap: 6px; margin-bottom: 10px; } .tabs .btn { flex: 1; height: 44px; }
+  }
+  @media (min-width: 701px) { .tabs { display: none; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <span class="logo"><i></i>Termini Dental</span>
+    <nav><a class="on">Kalendari</a><a>Raportet</a><a>Pacientët</a><a>Për kontroll</a><a>Emailat</a><a>Cilësimet</a></nav>
+  </aside>
+  <main>
+    <div class="head">
+      <div><h1>Kalendari</h1><p class="muted">E hënë, 12 tetor 2026</p></div>
+      <div style="display:flex;gap:8px"><span class="btn sm">←</span><span class="btn sm">Sot</span><span class="btn sm">→</span><span class="btn primary">+ Termin i ri</span></div>
+    </div>
+
+    <div class="week">
+      <div class="d on"><small>Hën</small><b>12</b><small>5 termine</small><div class="bar"><span style="width:55%"></span></div></div>
+      <div class="d"><small>Mar</small><b>13</b><small>8 termine</small><div class="bar"><span style="width:85%"></span></div></div>
+      <div class="d"><small>Mër</small><b>14</b><small>3 termine</small><div class="bar"><span style="width:30%"></span></div></div>
+      <div class="d"><small>Enj</small><b>15</b><small>6 termine</small><div class="bar"><span style="width:65%"></span></div></div>
+      <div class="d"><small>Pre</small><b>16</b><small>2 termine</small><div class="bar"><span style="width:20%"></span></div></div>
+      <div class="d off"><small>Sht</small><b>17</b><small>mbyllur</small></div>
+      <div class="d off"><small>Die</small><b>18</b><small>mbyllur</small></div>
+    </div>
+
+    <div class="sum"><span><b>5</b> termine sot</span><span class="muted">2 të kryera · 3 në pritje</span><span style="color:var(--brand-700)">4 orë të lira pasdite</span></div>
+    <div class="tabs"><span class="btn primary">Dr. Arta Krasniqi</span><span class="btn">Dr. Besnik Gashi</span></div>
+
+    <div class="card" style="overflow:hidden">
+      <div class="grid">
+        <div class="colhead"></div>
+        <div class="colhead">Dr. Arta Krasniqi<small>3 termine · 09:00–13:00, 14:00–17:00</small></div>
+        <div class="colhead second">Dr. Besnik Gashi<small>2 termine · 09:00–13:00, 14:00–17:00</small></div>
+
+        <div class="hours">
+          <span style="top:0">09:00</span><span style="top:60px">10:00</span><span style="top:120px">11:00</span><span style="top:180px">12:00</span><span style="top:240px">13:00</span><span style="top:300px">14:00</span><span style="top:360px">15:00</span><span style="top:420px">16:00</span><span style="top:480px">17:00</span>
+        </div>
+        <div class="col">
+          <div class="appt done" style="top:30px;height:28px"><b>09:30 · Liridona Shala</b></div>
+          <div class="appt" style="top:120px;height:58px"><b>11:00 · Blerim Rexhepi</b>Zbardhim dhëmbësh · 1 orë</div>
+          <div class="closed" style="top:240px;height:60px"><em>Pushim</em></div>
+          <div class="now" style="top:200px"></div>
+          <div class="appt" style="top:300px;height:43px"><b>14:00 · Vjosa Kelmendi</b>Mbushje · 45 min</div>
+          <div class="free" style="top:360px;height:118px">E lirë 15:00–17:00 · kliko për termin</div>
+        </div>
+        <div class="col second">
+          <div class="appt noshow" style="top:60px;height:28px"><b>10:00 · Drilon Berisha</b></div>
+          <div class="free" style="top:120px;height:118px">E lirë 11:00–13:00</div>
+          <div class="closed" style="top:240px;height:60px"><em>Pushim</em></div>
+          <div class="appt" style="top:360px;height:43px"><b>15:00 · Mimoza Hoxha</b>Mbushje · 45 min</div>
+        </div>
+      </div>
+    </div>
+    <p class="faint" style="margin-top:12px;font-size:13px">Ngjyrat: <span class="badge info">I caktuar</span> <span class="badge ok">I kryer</span> <span class="badge warn">Nuk erdhi</span> · vija e kuqe: ora tani</p>
+  </main>
+</div>
+<span class="label">Propozim · jo pjesë e produktit</span>
+</body>
+</html>
