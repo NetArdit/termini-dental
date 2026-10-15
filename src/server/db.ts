@@ -208,3 +208,7 @@ export const EXCLUSION_VIOLATION = "23P01";
 export const UNIQUE_VIOLATION = "23505";
 /** TD001 (ours, raised by clinic_keeps_an_administrator in the baseline migration): the change would leave a clinic without an active administrator. */
 export const LAST_ADMINISTRATOR = "TD001";
+/** TD002 (ours, raised by completed_needs_a_report in migration 007): an appointment would be completed without a visit report. */
+export const COMPLETED_WITHOUT_REPORT = "TD002";
+/** TD003 (ours, same function): an appointment that has a visit report would be marked as not attended. */
+export const NO_SHOW_WITH_REPORT = "TD003";

@@ -5,7 +5,8 @@ import { audit, clinicById, mapClinic, type Ctx } from "../context";
 import { LAST_ADMINISTRATOR, UNIQUE_VIOLATION, pgErrorCode, type Queryer } from "../db";
 import { HttpError, idParam, parse } from "../errors";
 import { lockDentist } from "../booking";
-import { insertDefaultHours } from "./auth";
+import { isWholePicture } from "../imageCheck";
+import { insertDefaultHours } from "../bootstrap";
 
 const clinicPatch = z
   .object({
@@ -34,8 +35,23 @@ const staffPatch = z
     isBookable: z.boolean(),
     isActive: z.boolean(),
     password: z.string().min(8, "Fjalëkalimi duhet të ketë të paktën 8 shkronja.").max(200),
+    /** The title shown to patients, such as "Specialist i Endodoncisë"; empty clears it. */
+    title: z
+      .string()
+      .trim()
+      .max(120, "Titulli është shumë i gjatë.")
+      .nullable()
+      .transform((v) => v || null),
   })
   .partial();
+
+const MAX_PORTRAIT_BYTES = 400_000;
+const portraitSchema = z
+  .object({
+    contentType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+    data: z.string().min(16).max(Math.ceil((MAX_PORTRAIT_BYTES * 4) / 3) + 8).regex(/^[A-Za-z0-9+/]+={0,2}$/, "Fotografia nuk u lexua dot."),
+  })
+  .strict();
 
 const hoursSchema = z.object({
   hours: z
@@ -55,12 +71,16 @@ const timeOffSchema = z.object({
   reason: z.string().trim().max(200).optional(),
 });
 
+/** The price a service starts from, in cents; null: the clinic does not publish one. */
+const price = z.number().int().min(0, "Çmimi nuk mund të jetë negativ.").max(10_000_000).nullable();
+
 const serviceCreate = z.object({
   name: z.string().trim().min(2, "Emri është i detyrueshëm.").max(80),
   durationMinutes: z.number().int().min(5, "Të paktën 5 minuta.").max(480),
+  priceFromMinor: price.optional(),
 });
 const servicePatch = z
-  .object({ name: z.string().trim().min(2).max(80), durationMinutes: z.number().int().min(5).max(480), isActive: z.boolean() })
+  .object({ name: z.string().trim().min(2).max(80), durationMinutes: z.number().int().min(5).max(480), isActive: z.boolean(), priceFromMinor: price })
   .partial();
 
 interface StaffRow {
@@ -70,13 +90,26 @@ interface StaffRow {
   email: string;
   is_bookable: boolean;
   is_active: boolean;
+  title: string | null;
+  has_photo: boolean;
 }
 
-const mapStaff = (u: StaffRow) => ({ id: u.id, role: u.role, fullName: u.full_name, email: u.email, isBookable: u.is_bookable, isActive: u.is_active });
+const STAFF_COLUMNS = "id, role, full_name, email, is_bookable, is_active, title, (photo_base64 IS NOT NULL) AS has_photo";
+
+const mapStaff = (u: StaffRow) => ({
+  id: u.id,
+  role: u.role,
+  fullName: u.full_name,
+  email: u.email,
+  isBookable: u.is_bookable,
+  isActive: u.is_active,
+  title: u.title,
+  hasPhoto: u.has_photo,
+});
 
 /** The staff member `id`, but only inside the requester's own clinic. */
 async function staffInClinic(q: Queryer, clinicId: number, id: number): Promise<StaffRow> {
-  const rows = await q.query<StaffRow>("SELECT id, role, full_name, email, is_bookable, is_active FROM users WHERE id = $1 AND clinic_id = $2", [id, clinicId]);
+  const rows = await q.query<StaffRow>(`SELECT ${STAFF_COLUMNS} FROM users WHERE id = $1 AND clinic_id = $2`, [id, clinicId]);
   if (!rows[0]) throw new HttpError(404, "Përdoruesi nuk u gjet.");
   return rows[0];
 }
@@ -127,7 +160,7 @@ export function clinicRoutes(ctx: Ctx): Router {
   r.get("/staff", async (req, res) => {
     const user = requireUser(req);
     const rows = await ctx.db.query<StaffRow>(
-      "SELECT id, role, full_name, email, is_bookable, is_active FROM users WHERE clinic_id = $1 ORDER BY is_active DESC, full_name",
+      `SELECT ${STAFF_COLUMNS} FROM users WHERE clinic_id = $1 ORDER BY is_active DESC, full_name`,
       [user.clinicId],
     );
     res.json({ staff: rows.map(mapStaff) });
@@ -183,6 +216,7 @@ export function clinicRoutes(ctx: Ctx): Router {
       if (input.isBookable !== undefined) set("is_bookable", input.isBookable);
       if (input.isActive !== undefined) set("is_active", input.isActive);
       if (input.password !== undefined) set("password_hash", await hashPassword(input.password));
+      if (input.title !== undefined) set("title", input.title);
       if (!sets.length) return;
       params.push(id);
       await q.query(`UPDATE users SET ${sets.join(", ")} WHERE id = $${params.length}`, params);
@@ -202,6 +236,31 @@ export function clinicRoutes(ctx: Ctx): Router {
         if (pgErrorCode(err) === LAST_ADMINISTRATOR) throw lastAdministrator();
         throw err;
       });
+    res.json({ staff: mapStaff(await staffInClinic(ctx.db, user.clinicId, id)) });
+  });
+
+  // ---- a portrait for the public pages: the administrator's, or the person's own ----------------------
+  r.put("/staff/:id/photo", async (req, res) => {
+    const user = requireUser(req);
+    const id = idParam(req.params.id);
+    assertSelfOrAdmin(user, id);
+    const picture = parse(portraitSchema, req.body);
+    const bytes = Buffer.from(picture.data, "base64");
+    if (bytes.length > MAX_PORTRAIT_BYTES) throw new HttpError(413, "Fotografia është shumë e madhe. Më e shumta 400 kB.");
+    if (!isWholePicture(bytes, picture.contentType)) throw new HttpError(400, "Ky skedar nuk është fotografi JPEG, PNG ose WebP.");
+    await staffInClinic(ctx.db, user.clinicId, id);
+    await ctx.db.query("UPDATE users SET photo_type = $1, photo_base64 = $2 WHERE id = $3 AND clinic_id = $4", [picture.contentType, picture.data, id, user.clinicId]);
+    await audit(ctx.db, { clinicId: user.clinicId, userId: user.id, action: "staff_photo_set", entity: "user", entityId: id, meta: { bytes: bytes.length } });
+    res.json({ staff: mapStaff(await staffInClinic(ctx.db, user.clinicId, id)) });
+  });
+
+  r.delete("/staff/:id/photo", async (req, res) => {
+    const user = requireUser(req);
+    const id = idParam(req.params.id);
+    assertSelfOrAdmin(user, id);
+    await staffInClinic(ctx.db, user.clinicId, id);
+    await ctx.db.query("UPDATE users SET photo_type = NULL, photo_base64 = NULL WHERE id = $1 AND clinic_id = $2", [id, user.clinicId]);
+    await audit(ctx.db, { clinicId: user.clinicId, userId: user.id, action: "staff_photo_removed", entity: "user", entityId: id, meta: {} });
     res.json({ staff: mapStaff(await staffInClinic(ctx.db, user.clinicId, id)) });
   });
 
@@ -300,20 +359,21 @@ export function clinicRoutes(ctx: Ctx): Router {
   // ---- services -------------------------------------------------------------------------------------
   r.get("/services", async (req, res) => {
     const user = requireUser(req);
-    const rows = await ctx.db.query<{ id: number; name: string; duration_minutes: number; is_active: boolean }>(
-      "SELECT id, name, duration_minutes, is_active FROM services WHERE clinic_id = $1 ORDER BY is_active DESC, name",
+    const rows = await ctx.db.query<{ id: number; name: string; duration_minutes: number; is_active: boolean; price_from_minor: number | null }>(
+      "SELECT id, name, duration_minutes, is_active, price_from_minor FROM services WHERE clinic_id = $1 ORDER BY is_active DESC, name",
       [user.clinicId],
     );
-    res.json({ services: rows.map((s) => ({ id: s.id, name: s.name, durationMinutes: s.duration_minutes, isActive: s.is_active })) });
+    res.json({ services: rows.map((s) => ({ id: s.id, name: s.name, durationMinutes: s.duration_minutes, isActive: s.is_active, priceFromMinor: s.price_from_minor })) });
   });
 
   r.post("/services", async (req, res) => {
     const user = requireAdmin(req);
     const input = parse(serviceCreate, req.body);
-    const rows = await ctx.db.query<{ id: number }>("INSERT INTO services (clinic_id, name, duration_minutes) VALUES ($1, $2, $3) RETURNING id", [
+    const rows = await ctx.db.query<{ id: number }>("INSERT INTO services (clinic_id, name, duration_minutes, price_from_minor) VALUES ($1, $2, $3, $4) RETURNING id", [
       user.clinicId,
       input.name,
       input.durationMinutes,
+      input.priceFromMinor ?? null,
     ]);
     res.status(201).json({ id: rows[0]!.id });
   });
@@ -329,6 +389,7 @@ export function clinicRoutes(ctx: Ctx): Router {
     if (input.name !== undefined) sets.push(`name = $${params.push(input.name)}`);
     if (input.durationMinutes !== undefined) sets.push(`duration_minutes = $${params.push(input.durationMinutes)}`);
     if (input.isActive !== undefined) sets.push(`is_active = $${params.push(input.isActive)}`);
+    if (input.priceFromMinor !== undefined) sets.push(`price_from_minor = $${params.push(input.priceFromMinor)}`);
     if (sets.length) await ctx.db.query(`UPDATE services SET ${sets.join(", ")} WHERE id = $${params.push(id)}`, params);
     res.json({ ok: true });
   });

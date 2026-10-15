@@ -74,7 +74,7 @@ export const MAX_LIMITER_KEYS = 10_000;
 // Asking counts. The check and the count are one step, so many requests arriving together cannot each see
 // "still under the limit" and all go through.
 
-export type Bucket = "login" | "booking";
+export type Bucket = "login" | "booking" | "reset";
 
 export interface RateLimiter {
   /**

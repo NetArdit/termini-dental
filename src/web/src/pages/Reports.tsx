@@ -5,11 +5,13 @@ import { api, type Appointment } from "../lib/api";
 import { fmtDateLong, fmtTime, today } from "../lib/format";
 import { Badge, Card, Empty, Input, LoadError, Loading, PageHeader, StatusBadge, useLoad } from "../ui";
 import { DayNav } from "./Calendar";
+import { ReportsWeek } from "./ReportsWeek";
 
 // The owner's report flow: choose a date, see that date's patients, narrow by name, open the appointment
 // and read or write what was done.
 
 export function Reports() {
+  const [view, setView] = useState<"java" | "dita">("java");
   const { user, clinic } = useSession();
   const zone = clinic.timezone;
   const [date, setDate] = useState(today(zone));
@@ -29,7 +31,21 @@ export function Reports() {
 
   return (
     <>
-      <PageHeader title="Raportet" subtitle="Zgjidhni datën, gjeni pacientin dhe hapni terminin për të parë ose shkruar çfarë u punua." />
+      <PageHeader title="Raportet" subtitle={view === "java" ? "Të gjitha raportet e javës, ditë pas dite. Shtypni një datë anash për të shkuar drejt te raportet e saj." : "Zgjidhni datën, gjeni pacientin dhe hapni terminin për të parë ose shkruar çfarë u punua."} />
+      <div className="mb-4 inline-flex rounded-xl border border-line bg-surface p-1" role="group" aria-label="Pamja e raporteve">
+        {(
+          [
+            ["java", "Raportet e javës"],
+            ["dita", "Sipas ditës"],
+          ] as const
+        ).map(([key, label]) => (
+          <button key={key} type="button" aria-pressed={view === key} onClick={() => setView(key)} className={`rounded-lg px-4 py-1.5 text-sm font-medium transition-colors ${view === key ? "bg-brand-700 text-white" : "text-ink-soft hover:bg-brand-50"}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {view === "java" ? <ReportsWeek /> : null}
+      <div className={view === "dita" ? "" : "hidden"}>
 
       <Card className="mb-4 flex flex-wrap items-end gap-4 p-4">
         <div>
@@ -80,6 +96,7 @@ export function Reports() {
         </>
       )}
 
+      </div>
       <AppointmentDialog id={openId} onClose={() => setOpenId(null)} onChanged={day.reload} />
     </>
   );

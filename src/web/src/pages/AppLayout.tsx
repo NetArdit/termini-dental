@@ -6,12 +6,15 @@ import { Logo } from "./Login";
 
 // The frame of the clinic's side: navigation, who is logged in, and the gate that keeps everyone else out.
 
-const NAV: Array<{ to: string; label: string; icon: string }> = [
+const NAV: Array<{ to: string; label: string; icon: string; adminOnly?: boolean }> = [
   { to: "/app/kalendari", label: "Kalendari", icon: "M6 3v3M14 3v3M3.500 8h13M5 5h10a1.500 1.500 0 011.500 1.500v9A1.500 1.500 0 0115 17H5a1.500 1.500 0 01-1.500-1.500v-9A1.500 1.500 0 015 5z" },
+  { to: "/app/terminet", label: "Terminet", icon: "M4 5.500h12M4 10h12M4 14.500h8" },
   { to: "/app/raportet", label: "Raportet", icon: "M6 3h6l4 4v9.500A1.500 1.500 0 0114.500 18h-9A1.500 1.500 0 014 16.500v-12A1.500 1.500 0 015.500 3H6zM12 3v4h4M7 11h6M7 14h4" },
   { to: "/app/pacientet", label: "Pacientët", icon: "M10 10a3 3 0 100-6 3 3 0 000 6zM4 17c0-2.800 2.700-4.500 6-4.500s6 1.700 6 4.500" },
   { to: "/app/kontrolle", label: "Për kontroll", icon: "M10 5.500V10l3 2M17 10a7 7 0 11-14 0 7 7 0 0114 0z" },
   { to: "/app/emailat", label: "Emailat", icon: "M3.500 6.500l6.500 4.500 6.500-4.500M4.500 5h11A1.500 1.500 0 0117 6.500v7a1.500 1.500 0 01-1.500 1.500h-11A1.500 1.500 0 013 13.500v-7A1.500 1.500 0 014.500 5z" },
+  { to: "/app/vleresimet", label: "Vlerësimet", adminOnly: true, icon: "M10 2.500l2.300 4.700 5.200.8-3.800 3.700.9 5.200L10 14.400l-4.600 2.500.9-5.200L2.500 8l5.200-.8z" },
+  { to: "/app/galeria", label: "Punët tona", adminOnly: true, icon: "M4.500 4h11A1.500 1.500 0 0117 5.500v9a1.500 1.500 0 01-1.500 1.500h-11A1.500 1.500 0 013 14.500v-9A1.500 1.500 0 014.500 4zM3.500 13l3.500-3.500 3 3 2.500-2.500 4 4M12.500 7.500h.01" },
   { to: "/app/cilesimet", label: "Cilësimet", icon: "M4 6h7M15 6h1M4 14h1M9 14h7M13 4v4M7 12v4" },
 ];
 
@@ -24,7 +27,7 @@ export function AppLayout() {
   if (session === undefined) return <Loading />;
   if (session === null) return <Navigate to="/kycu" replace state={{ from: location.pathname }} />;
 
-  const bookingUrl = `${window.location.origin}/k/${session.clinic.slug}`;
+  const bookingUrl = `${window.location.origin}/rezervo`;
 
   async function copyLink() {
     try {
@@ -54,7 +57,7 @@ export function AppLayout() {
         {/* All six sections are visible at once on a phone (three by two), instead of a strip that scrolls
             sideways and hides half of them. */}
         <nav aria-label="Kryesor" className="grid grid-cols-3 gap-1 px-2 pb-2 lg:flex lg:flex-col lg:px-3">
-          {NAV.map((item) => (
+          {NAV.filter((item) => !item.adminOnly || session.user.role === "admin").map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -74,7 +77,7 @@ export function AppLayout() {
           <div className="rounded-xl bg-brand-50 p-3">
             <p className="text-xs font-medium text-brand-700">Faqja e termineve për pacientët</p>
             <p className="mt-1 truncate text-xs text-ink-soft" title={bookingUrl}>
-              /k/{session.clinic.slug}
+              /rezervo
             </p>
             <div className="mt-2 flex gap-2 text-xs font-medium">
               <button type="button" onClick={copyLink} className="rounded-md bg-surface px-2 py-1 text-brand-700 hover:bg-brand-100">

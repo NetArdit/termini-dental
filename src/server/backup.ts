@@ -26,6 +26,9 @@ const TABLES: Array<{ name: string; key: string; identity: boolean; instants: st
   { name: "appointments", key: "id", identity: true, instants: ["starts_at", "ends_at", "notice_accepted_at", "cancelled_at", "reminder_sent_at", "created_at"] },
   { name: "visit_reports", key: "appointment_id", identity: false, instants: ["created_at", "updated_at"] },
   { name: "visit_report_versions", key: "id", identity: true, instants: ["saved_at"] },
+  { name: "visit_images", key: "id", identity: true, instants: ["created_at"] },
+  { name: "dentist_reviews", key: "id", identity: true, instants: ["created_at", "moderated_at"] },
+  { name: "gallery_items", key: "id", identity: true, instants: ["consent_revoked_at", "created_at"] },
   { name: "email_log", key: "id", identity: true, instants: ["last_attempt_at", "sending_since", "created_at"] },
   { name: "audit_log", key: "id", identity: true, instants: ["created_at"] },
 ];
@@ -34,7 +37,7 @@ const TABLES: Array<{ name: string; key: string; identity: boolean; instants: st
 export const INSTANT_COLUMNS: Record<string, string[]> = Object.fromEntries(TABLES.map((t) => [t.name, t.instants]));
 
 /** Tables left out on purpose: who is logged in right now, the migration bookkeeping, and the short-lived rate-limit counters. */
-export const NOT_BACKED_UP = ["sessions", "schema_migrations", "rate_events"];
+export const NOT_BACKED_UP = ["sessions", "schema_migrations", "rate_events", "booking_requests", "password_resets"];
 export const BACKED_UP = TABLES.map((t) => t.name);
 
 export interface Backup {

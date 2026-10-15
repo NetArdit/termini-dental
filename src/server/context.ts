@@ -30,6 +30,12 @@ export interface Ctx {
    * forge (a header the host's edge always overwrites). Default: what Express works out (`req.ip`).
    */
   clientAddress?: (req: Request) => string | undefined;
+  /**
+   * How long a request for a new-password link takes to answer, always, whoever asks. Default 5 seconds.
+   * It is the same for an address that has an account and for one that has none, so the time an answer
+   * takes says nothing about who works here. Tests make it short.
+   */
+  resetAnswerMs?: number;
 }
 
 /** The address the limits on logins and bookings count by. */
@@ -39,7 +45,6 @@ export function addressOf(ctx: Ctx, req: Request): string {
 
 export interface ClinicRow {
   id: number;
-  slug: string;
   name: string;
   phone: string | null;
   address: string | null;
@@ -59,7 +64,6 @@ export async function clinicById(q: Queryer, id: number): Promise<ClinicRow> {
 export function mapClinic(c: ClinicRow) {
   return {
     id: c.id,
-    slug: c.slug,
     name: c.name,
     phone: c.phone,
     address: c.address,

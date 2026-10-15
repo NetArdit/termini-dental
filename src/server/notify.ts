@@ -1,5 +1,6 @@
 import type { Ctx } from "./context";
-import { bookingConfirmationMail, cancelledByClinicMail, cancelledByPatientMail, deliver, reminderMail, type EmailKind, type EmailStatus, type MailFacts, type OutgoingEmail } from "./mail";
+import type { Queryer } from "./db";
+import { bookingConfirmationMail, cancelledByClinicMail, cancelledByPatientMail, LINK_TOKEN, attemptDelivery, deliver, queueEmail, reminderMail, type EmailKind, type EmailStatus, type MailFacts, type OutgoingEmail } from "./mail";
 import { formatAlbanian } from "./time";
 
 // Patient emails about one appointment. Each returns what happened to the message, or "no_email" when the
@@ -13,8 +14,8 @@ interface Loaded {
   facts: MailFacts;
 }
 
-async function load(ctx: Ctx, appointmentId: number, token?: string): Promise<Loaded | null> {
-  const rows = await ctx.db.query<{
+async function load(ctx: Ctx, appointmentId: number, token?: string, q: Queryer = ctx.db): Promise<Loaded | null> {
+  const rows = await q.query<{
     clinic_id: number;
     clinic_name: string;
     clinic_phone: string | null;
@@ -52,14 +53,16 @@ async function load(ctx: Ctx, appointmentId: number, token?: string): Promise<Lo
       when: formatAlbanian(new Date(row.starts_at), row.timezone),
       cancelNoticeHours: row.cancel_notice_hours,
       // After "#": a browser keeps that part to itself, so the token reaches no server's request log.
-      link: token ? `${ctx.publicUrl}/termin#${token}` : undefined,
+      // What is composed here is what gets stored, so the secret part of the link is never in it: only the
+      // place where it goes. It is filled in at the moment of sending (mail.ts, attemptDelivery).
+      link: token ? `${ctx.publicUrl}/termin#${LINK_TOKEN}` : undefined,
       reason: row.cancel_reason,
     },
   };
 }
 
-async function compose(ctx: Ctx, appointmentId: number, kind: EmailKind, build: (facts: MailFacts) => { subject: string; text: string }, token?: string): Promise<OutgoingEmail | null> {
-  const loaded = await load(ctx, appointmentId, token);
+async function compose(ctx: Ctx, appointmentId: number, kind: EmailKind, build: (facts: MailFacts) => { subject: string; text: string }, token?: string, q: Queryer = ctx.db): Promise<OutgoingEmail | null> {
+  const loaded = await load(ctx, appointmentId, token, q);
   if (!loaded || !loaded.to) return null;
   return { clinicId: loaded.clinicId, appointmentId, to: loaded.to, kind, ...build(loaded.facts) };
 }
@@ -67,12 +70,42 @@ async function compose(ctx: Ctx, appointmentId: number, kind: EmailKind, build: 
 async function send(ctx: Ctx, appointmentId: number, kind: EmailKind, build: (facts: MailFacts) => { subject: string; text: string }, token?: string): Promise<NotifyResult> {
   const email = await compose(ctx, appointmentId, kind, build, token);
   if (!email) return "no_email";
-  return deliver(ctx.db, ctx.mailer, email, ctx.now());
+  return deliver(ctx.db, ctx.mailer, email, ctx.now(), token);
 }
 
 /** The reminder for an appointment, ready to be queued, or null when the patient has no address. */
 export const composeReminder = (ctx: Ctx, appointmentId: number) => compose(ctx, appointmentId, "reminder", reminderMail);
 
+/**
+ * Writes down the message that tells the patient their appointment was cancelled, inside the transaction that
+ * cancels it: the cancellation and "the patient must be told" are stored together or not at all. Nothing is
+ * sent here. Returns the message's id, or null when the patient has no address (staff then phone).
+ */
+export async function queueCancellation(ctx: Ctx, q: Queryer, appointmentId: number, by: "clinic" | "patient"): Promise<number | null> {
+  const email = by === "clinic" ? await compose(ctx, appointmentId, "cancelled_by_clinic", cancelledByClinicMail, undefined, q) : await compose(ctx, appointmentId, "cancelled_by_patient", cancelledByPatientMail, undefined, q);
+  return email ? queueEmail(q, email) : null;
+}
+
+/**
+ * Hands a message that was written down in a transaction to the mail server, after that transaction has
+ * been committed. Never throws for a mail failure: what was committed stands, and what did not get through
+ * is still written down for the housekeeping's retries and the staff's "send again".
+ */
+export async function handOver(ctx: Ctx, emailId: number | null, token?: string): Promise<NotifyResult> {
+  if (emailId === null) return "no_email";
+  if (!ctx.mailer) return "stored";
+  return (await attemptDelivery(ctx.db, ctx.mailer, emailId, ctx.now(), token)) ?? "stored";
+}
+
+/**
+ * Writes the confirmation of a booking down, inside the transaction that makes the booking: the appointment
+ * and the message that tells the patient about it exist together or not at all. Nothing is sent here.
+ * Returns the message's id, or null when the patient has no address.
+ */
+export async function queueBookingConfirmation(ctx: Ctx, q: Queryer, appointmentId: number, token: string): Promise<number | null> {
+  const email = await compose(ctx, appointmentId, "booking_confirmation", bookingConfirmationMail, token, q);
+  return email ? queueEmail(q, email) : null;
+}
+
 export const notifyBooked = (ctx: Ctx, appointmentId: number, token?: string) => send(ctx, appointmentId, "booking_confirmation", bookingConfirmationMail, token);
-export const notifyCancelledByClinic = (ctx: Ctx, appointmentId: number) => send(ctx, appointmentId, "cancelled_by_clinic", cancelledByClinicMail);
-export const notifyCancelledByPatient = (ctx: Ctx, appointmentId: number) => send(ctx, appointmentId, "cancelled_by_patient", cancelledByPatientMail);
+

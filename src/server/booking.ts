@@ -16,6 +16,8 @@ export interface ServiceRow {
 export interface DentistRow {
   id: number;
   full_name: string;
+  title: string | null;
+  has_photo: boolean;
 }
 
 export async function activeService(q: Queryer, clinicId: number, serviceId: number): Promise<ServiceRow> {
@@ -26,11 +28,11 @@ export async function activeService(q: Queryer, clinicId: number, serviceId: num
 
 /** Dentists of the clinic that patients can be booked with. */
 export async function bookableDentists(q: Queryer, clinicId: number): Promise<DentistRow[]> {
-  return q.query<DentistRow>("SELECT id, full_name FROM users WHERE clinic_id = $1 AND is_active AND is_bookable ORDER BY full_name", [clinicId]);
+  return q.query<DentistRow>("SELECT id, full_name, title, (photo_base64 IS NOT NULL) AS has_photo FROM users WHERE clinic_id = $1 AND is_active AND is_bookable ORDER BY full_name", [clinicId]);
 }
 
 export async function bookableDentist(q: Queryer, clinicId: number, dentistId: number): Promise<DentistRow> {
-  const rows = await q.query<DentistRow>("SELECT id, full_name FROM users WHERE id = $1 AND clinic_id = $2 AND is_active AND is_bookable", [dentistId, clinicId]);
+  const rows = await q.query<DentistRow>("SELECT id, full_name, title, (photo_base64 IS NOT NULL) AS has_photo FROM users WHERE id = $1 AND clinic_id = $2 AND is_active AND is_bookable", [dentistId, clinicId]);
   if (!rows[0]) throw new HttpError(400, "Ky stomatolog nuk pranon termine.", { dentistId: "I pavlefshëm" });
   return rows[0];
 }
@@ -123,7 +125,13 @@ export interface NewAppointment {
   noticeAcceptedAt: Date | null;
   tokenHash: string | null;
   createdBy: number | null;
+  /** The deposit of an online booking. Today only as a demonstration: nothing was charged. */
+  deposit?: { mode: "demo"; amountMinor: number; currency: "EUR" };
 }
+
+/** The deposit an online booking asks for, in cents. The owner's rule: 15 euro. */
+export const DEPOSIT_MINOR = 1500;
+export const DEPOSIT_CURRENCY = "EUR" as const;
 
 /** Thrown when the database refused the row because the dentist already has an appointment then. */
 export class SlotTakenError extends HttpError {
@@ -133,9 +141,10 @@ export class SlotTakenError extends HttpError {
 }
 
 // Transaction-scoped advisory locks (released at commit or rollback). The first number is the kind of thing
-// locked. Order when both are taken: email first, then dentist.
+// locked. Order when several are taken: the booking's key first, then email, then dentist.
 const LOCK_DENTIST = 1;
 const LOCK_EMAIL = 2;
+const LOCK_BOOKING_KEY = 3;
 
 /** Makes everything that changes one dentist's calendar wait its turn. */
 export async function lockDentist(q: Queryer, dentistId: number) {
@@ -145,6 +154,11 @@ export async function lockDentist(q: Queryer, dentistId: number) {
 /** Makes online bookings of one person in one clinic wait their turn, so a limit on them cannot be raced. */
 export async function lockPatientEmail(q: Queryer, clinicId: number, email: string) {
   await q.query("SELECT pg_advisory_xact_lock($1::int, hashtext($2))", [LOCK_EMAIL, `${clinicId}:${email}`]);
+}
+
+/** Makes two tries of the same online booking (the same key) wait their turn: the second finds what the first did. */
+export async function lockBookingKey(q: Queryer, clinicId: number, keyHash: string) {
+  await q.query("SELECT pg_advisory_xact_lock($1::int, hashtext($2))", [LOCK_BOOKING_KEY, `${clinicId}:${keyHash}`]);
 }
 
 /**
@@ -160,9 +174,11 @@ export async function insertAppointment(q: Queryer, a: NewAppointment): Promise<
   if (off.length) throw new SlotTakenError("Stomatologu nuk punon në këtë kohë. Ju lutemi zgjidhni një orar tjetër.");
   try {
     const rows = await q.query<{ id: number }>(
-      `INSERT INTO appointments (clinic_id, dentist_id, patient_id, service_id, starts_at, ends_at, source, notice_accepted_at, token_hash, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
-      [a.clinicId, a.dentistId, a.patientId, a.serviceId, a.startsAt, a.endsAt, a.source, a.noticeAcceptedAt, a.tokenHash, a.createdBy],
+      // With a deposit, the whole amount is what the dentist takes off the bill at the visit.
+      `INSERT INTO appointments (clinic_id, dentist_id, patient_id, service_id, starts_at, ends_at, source, notice_accepted_at, token_hash, created_by,
+                                 deposit_mode, deposit_amount_minor, deposit_currency, bill_credit_minor)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
+      [a.clinicId, a.dentistId, a.patientId, a.serviceId, a.startsAt, a.endsAt, a.source, a.noticeAcceptedAt, a.tokenHash, a.createdBy, a.deposit?.mode ?? null, a.deposit?.amountMinor ?? null, a.deposit?.currency ?? null, a.deposit?.amountMinor ?? 0],
     );
     return rows[0]!.id;
   } catch (err) {

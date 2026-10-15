@@ -1,3 +1,5 @@
+import { createClinic } from "../src/server/bootstrap";
+import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createApp } from "../src/server/app";
@@ -75,6 +77,7 @@ export async function startApp(nowIso = "2026-10-12T08:00:00Z", database?: Db): 
     now: () => now,
     publicUrl: "http://test.local",
     maxBookingsPerHour: 1000,
+    resetAnswerMs: 120,
     mailer: {
       async send(message) {
         if (mailDelay.ms) await new Promise((resolve) => setTimeout(resolve, mailDelay.ms));
@@ -133,24 +136,40 @@ export function client(base: string) {
     put: (path: string, body?: unknown) => call("PUT", path, body ?? {}),
     patch: (path: string, body?: unknown) => call("PATCH", path, body ?? {}),
     del: (path: string) => call("DELETE", path),
+    /** Something that is not JSON (a picture): its bytes and the headers that matter. */
+    raw: async (path: string) => {
+      const res = await fetch(base + path, { headers: { cookie } });
+      return { status: res.status, type: res.headers.get("content-type"), cache: res.headers.get("cache-control"), sniff: res.headers.get("x-content-type-options"), bytes: Buffer.from(await res.arrayBuffer()) };
+    },
   };
 }
 
 let counter = 0;
 
-/** Signs a clinic up and returns its administrator's client plus the ids a test usually needs. */
-export async function newClinic(app: TestApp, name = "Klinika Test") {
+/** Empties the database of everything but its structure: no clinic, nobody signed in, no counters. */
+export async function emptyDatabase(app: TestApp) {
+  await app.ctx.db.query("TRUNCATE clinics, rate_events RESTART IDENTITY CASCADE");
+}
+
+/**
+ * Starts a test from nothing: empties the database, sets the one clinic up the way the command line does
+ * (there is no sign-up to call), signs its administrator in, and returns what a test usually needs.
+ * The application serves exactly one clinic, so a test that calls this again starts over.
+ */
+export async function newClinic(app: TestApp, name = "Rrënja Dental") {
   counter += 1;
+  await emptyDatabase(app);
   const admin = client(app.base);
   const email = `admin${counter}@klinika.test`;
-  const signup = await admin.post("/api/auth/signup", { clinicName: name, fullName: "Dr. Arta Krasniqi", email, password: "fjalekalimi1", isDentist: true });
-  if (signup.status !== 201) throw new Error("signup failed: " + JSON.stringify(signup.data));
+  await createClinic(app.ctx.db, { clinicName: name, adminName: "Dr. Arta Krasniqi", adminEmail: email, password: "fjalekalimi1", isDentist: true });
+  const login = await admin.post("/api/auth/login", { email, password: "fjalekalimi1" });
+  if (login.status !== 200) throw new Error("login failed: " + JSON.stringify(login.data));
   const me = (await admin.get("/api/auth/me")).data;
   const services = (await admin.get("/api/services")).data.services as Array<{ id: number; name: string; durationMinutes: number }>;
   return {
     admin,
     email,
-    clinic: me.clinic as { id: number; slug: string },
+    clinic: me.clinic as { id: number; name: string },
     adminId: me.user.id as number,
     services,
     checkup: services.find((s) => s.name === "Kontroll")!,
@@ -168,14 +187,21 @@ export async function newDentist(app: TestApp, admin: Client, fullName = "Dr. Be
   return { client: c, id: created.data.staff.id as number, email };
 }
 
-/** What a patient types into the booking form. Each call gets its own address, so bookings do not pile up on one person. */
+/**
+ * What a patient types into the booking form, with the key the page makes for one attempt to book. Each call
+ * gets its own address, so bookings do not pile up on one person, and its own key, so each is a booking of
+ * its own.
+ */
 export function patientInput(overrides: Record<string, unknown> = {}) {
   counter += 1;
   return {
+    idempotencyKey: randomUUID(),
     fullName: "Blerim Hoxha",
     phone: "+383 44 123 456",
     email: `pacient${counter}@example.test`,
     acceptNotice: true,
+    // The deposit step was gone through (today a demonstration: the one word is all a booking says of it).
+    deposit: "demo",
     ...overrides,
   };
 }

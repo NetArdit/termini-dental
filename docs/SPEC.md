@@ -51,7 +51,7 @@ Each is a default the owner can overturn.
 ## 4. Version 1 scope
 
 In:
-- Clinic sign-up (creates the clinic and its administrator); administrator adds dentists.
+- One clinic. It and its first administrator are created from the command line (`npm run clinic:create`), never from the internet; the administrator adds dentists.
 - Services (name, duration) and weekly working hours per dentist; days off.
 - Public booking page per clinic: service, dentist (or "any"), day, free slot, contact details, notice, confirm.
 - Calendar for staff: day view per dentist; book for a local patient; cancel; mark completed or no-show.

@@ -301,11 +301,13 @@ const INSPECT = `(() => {
 
 /**
  * Refuses to go on unless the server under test runs on the demo seed: the flows write, and the screens
- * log in with the demo accounts. A hosted database with a real clinic has no "klinika-demo".
+ * log in with the demo accounts. Only a database made by the seed has those accounts: a real clinic's
+ * administrator is not "arta@demo.test" with the demo password.
  */
 async function requireDemoServer() {
-  const res = await fetch(`${BASE}/api/public/clinics/klinika-demo`).catch(() => null);
-  if (!res || res.status !== 200) throw new Error(`${BASE} is not serving the demo clinic (status ${res?.status ?? "none"}). Start a scratch server: DATABASE_URL= PGLITE_DIR=<empty dir> npm run seed, then npm start.`);
+  const clinic = await fetch(`${BASE}/api/public/clinic`).catch(() => null);
+  const login = clinic?.status === 200 ? await fetch(`${BASE}/api/auth/login`, { method: "POST", headers: { "content-type": "application/json", "x-requested-with": "termini" }, body: JSON.stringify(ADMIN) }).catch(() => null) : null;
+  if (!login || login.status !== 200) throw new Error(`${BASE} is not serving the demo clinic (clinic ${clinic?.status ?? "none"}, demo login ${login?.status ?? "not tried"}). Start a scratch server: DATABASE_URL= PGLITE_DIR=<empty dir> npm run seed, then npm start.`);
 }
 
 async function inspect(name, who, vp) {
@@ -344,12 +346,12 @@ try {
   for (const vp of SCREEN_VIEWPORTS) {
     await viewport(vp);
     await cdp.send("Network.clearBrowserCookies");
-    for (const [name, p] of [["landing", "/"], ["booking", "/k/klinika-demo"], ["login", "/kycu"], ["signup", "/regjistrohu"], ["bad-link", "/termin#nuk-ekziston"], ["no-clinic", "/k/nuk-ekziston"]]) {
+    for (const [name, p] of [["landing", "/"], ["booking", "/rezervo"], ["login", "/kycu"], ["bad-link", "/termin#nuk-ekziston"]]) {
       await go(p);
       await inspect(name, "public", vp);
     }
     // The booking page with every step open.
-    await go("/k/klinika-demo");
+    await go("/rezervo");
     await clickAt(`[...document.querySelectorAll("main button[aria-pressed]")][0]`);
     await sleep(200);
     await clickAt(`[...document.querySelectorAll("main button[aria-pressed]")].find((b) => b.innerText.includes("Kushdo"))`);
@@ -407,7 +409,7 @@ try {
   // ---- 2. keyboard -----------------------------------------------------------------------------------
   await viewport("desktop");
   await cdp.send("Network.clearBrowserCookies");
-  await go("/k/klinika-demo");
+  await go("/rezervo");
   const order = [];
   for (let i = 0; i < 12; i++) {
     await tab();
@@ -584,7 +586,7 @@ try {
     await cdp.send("Network.clearBrowserCookies");
 
     await flow("a patient books online, start to finish", async () => {
-      await go("/k/klinika-demo");
+      await go("/rezervo");
       must(await clickAt(`[...document.querySelectorAll("main button[aria-pressed]")][0]`), "no service to choose");
       await sleep(200);
       must(await clickAt(`[...document.querySelectorAll("main button[aria-pressed]")].find((b) => b.innerText.includes("Kushdo"))`), "no 'any dentist' choice");
@@ -760,7 +762,7 @@ try {
   // because a single load on a busy machine says little.
   const median = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
   for (const [profileName, prof] of SECTIONS.has("perf") ? Object.entries(PROFILES) : []) {
-    for (const [name, p, account] of [["booking", "/k/klinika-demo", null], ["login", "/kycu", null], ["kalendari", "/app/kalendari", ADMIN]]) {
+    for (const [name, p, account] of [["booking", "/rezervo", null], ["login", "/kycu", null], ["kalendari", "/app/kalendari", ADMIN]]) {
      const runs = [];
      for (let run = 0; run < PERF_RUNS; run++) {
       await viewport(prof.vp);

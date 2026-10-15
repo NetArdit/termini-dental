@@ -32,7 +32,7 @@ describe("backup, then restore into an empty database", () => {
     first.setNow("2026-10-12T10:00:00Z");
     await besnik.client.put(`/api/appointments/${visit}/report`, { workDone: "Mbushje në dhëmbin 26.", nextVisitDays: 30 });
     await besnik.client.put(`/api/appointments/${visit}/report`, { workDone: "Mbushje në dhëmbin 27 (jo 26).", nextVisitDays: 30 });
-    const online = await client(first.base).post(`/api/public/clinics/${c.clinic.slug}/book`, { serviceId: c.checkup.id, dentistId: null, startsAt: WED_0900, ...patientInput({ email: "online@example.test" }) });
+    const online = await client(first.base).post("/api/public/book", { serviceId: c.checkup.id, dentistId: null, startsAt: WED_0900, ...patientInput({ email: "online@example.test" }) });
     const toCancel = (await c.admin.post("/api/appointments", { dentistId: c.adminId, serviceId: c.checkup.id, startsAt: "2026-10-15T07:00:00.000Z", newPatient: { fullName: "Për Anulim", email: "anulim@example.test" } })).data.id as number;
     await c.admin.post(`/api/appointments/${toCancel}/cancel`, { reason: "Defekt i pajisjes" });
     await c.admin.post(`/api/staff/${besnik.id}/time-off`, { startsAt: "2026-11-02T08:00:00Z", endsAt: "2026-11-03T08:00:00Z" });

@@ -277,7 +277,7 @@ The staging site as set up on 2026-10-11:
   the United States (Ohio); the free plan offers no other region.
 - Database: a separate Neon project, `<staging-site>` (`<staging-project-id>`, Frankfurt,
   PostgreSQL 18), holding the demo clinic only. It is NOT the owner's database (`termini-dental`,
-  `<owner-project-id>`), which nothing on Netlify knows about.
+  `shiny-term-12107864`), which nothing on Netlify knows about.
 - Variables on the site: `DATABASE_URL` (the pooled address of the staging database, `sslmode=verify-full`)
   and `RATE_LIMIT_SECRET`, both stored as secrets in the production context (the free plan does not offer
   limiting a variable to functions; `netlify env:set ... --scope` fails there without saying so, so check

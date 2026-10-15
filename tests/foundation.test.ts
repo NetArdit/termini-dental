@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { client, newClinic, newDentist, startApp, type TestApp } from "./helpers";
+import { BootstrapError, checkFirstSetup, createClinic } from "../src/server/bootstrap";
+import { client, emptyDatabase, newClinic, newDentist, startApp, type TestApp } from "./helpers";
 
 let app: TestApp;
 beforeAll(async () => {
@@ -8,26 +9,103 @@ beforeAll(async () => {
 afterAll(() => app.close());
 
 describe("accounts and clinic setup", () => {
-  it("signing up creates a clinic, its administrator, default services and working hours", async () => {
-    const { admin, clinic, adminId, services } = await newClinic(app, "Klinika Dentare Dr. Arta");
-    expect(clinic.slug).toBe("klinika-dentare-dr-arta");
+  it("setting the clinic up creates it, its administrator, default services and working hours", async () => {
+    const { admin, clinic, adminId, services } = await newClinic(app, "Rrënja Dental");
+    expect(clinic.name).toBe("Rrënja Dental");
+    expect(JSON.stringify(clinic)).not.toMatch(/slug/);
     expect(services.length).toBeGreaterThanOrEqual(3);
     const hours = (await admin.get(`/api/staff/${adminId}/hours`)).data.hours;
     expect(hours).toHaveLength(5);
     expect(hours[0]).toEqual({ weekday: 1, startMinute: 540, endMinute: 1020 });
   });
 
-  it("two clinics with the same name get different addresses", async () => {
-    const a = await newClinic(app, "Dental Plus");
-    const b = await newClinic(app, "Dental Plus");
-    expect(a.clinic.slug).toBe("dental-plus");
-    expect(b.clinic.slug).toBe("dental-plus-2");
+  it("nothing reachable from the internet creates a clinic or an administrator", async () => {
+    await emptyDatabase(app);
+    const anybody = client(app.base);
+    const wanted = { clinicName: "Klinika Ime", fullName: "Dikush Tjetër", email: "dikush@example.test", password: "fjalekalimi1", isDentist: true };
+    for (const address of ["/api/auth/signup", "/api/auth/register", "/api/clinics", "/api/public/clinics", "/api/public/clinic", "/api/staff"]) {
+      const res = await anybody.post(address, wanted);
+      expect([401, 404], address).toContain(res.status);
+    }
+    expect((await app.ctx.db.query("SELECT 1 FROM clinics")).length).toBe(0);
+    expect((await app.ctx.db.query("SELECT 1 FROM users")).length).toBe(0);
+    // Before the clinic is set up, its public pages say so instead of failing.
+    expect((await anybody.get("/api/public/clinic")).status).toBe(503);
+    // With a clinic there, the same requests still create nothing.
+    const { clinic } = await newClinic(app);
+    for (const address of ["/api/auth/signup", "/api/clinics", "/api/staff"]) expect([401, 404], address).toContain((await client(app.base).post(address, wanted)).status);
+    expect((await app.ctx.db.query<{ id: number }>("SELECT id FROM clinics")).map((c) => c.id)).toEqual([clinic.id]);
+    expect((await app.ctx.db.query("SELECT 1 FROM users")).length).toBe(1);
   });
 
-  it("an email can be registered only once", async () => {
+  it("the set-up refuses to run twice: no second clinic, and the administrator's password stays as it was", async () => {
     const { email } = await newClinic(app);
-    const again = await client(app.base).post("/api/auth/signup", { clinicName: "Tjetër", fullName: "Dikush Tjetër", email, password: "fjalekalimi1" });
-    expect(again.status).toBe(409);
+    const before = (await app.ctx.db.query<{ password_hash: string }>("SELECT password_hash FROM users WHERE email = $1", [email]))[0]!.password_hash;
+    await expect(createClinic(app.ctx.db, { clinicName: "E dyta", adminName: "Dikush Tjetër", adminEmail: "tjeter@example.test", password: "fjalekalimi9", isDentist: false })).rejects.toThrow(BootstrapError);
+    await expect(createClinic(app.ctx.db, { clinicName: "Rrënja Dental", adminName: "Dr. Arta Krasniqi", adminEmail: email, password: "nje-tjeter-123", isDentist: true })).rejects.toThrow(/already has its clinic/);
+    expect((await app.ctx.db.query("SELECT 1 FROM clinics")).length).toBe(1);
+    expect((await app.ctx.db.query("SELECT 1 FROM users")).length).toBe(1);
+    expect((await app.ctx.db.query<{ password_hash: string }>("SELECT password_hash FROM users WHERE email = $1", [email]))[0]!.password_hash).toBe(before);
+    expect((await client(app.base).post("/api/auth/login", { email, password: "nje-tjeter-123" })).status).toBe(401);
+  });
+
+  it("the set-up checks what it is given, and stores nothing when something is wrong", async () => {
+    await emptyDatabase(app);
+    const good = { clinicName: "Rrënja Dental", adminName: "Dr. Arta Krasniqi", adminEmail: "arta@example.test", password: "fjalekalimi1", isDentist: true };
+    for (const wrong of [{ clinicName: " " }, { adminName: "A" }, { adminEmail: "not-an-address" }, { password: "short" }]) {
+      await expect(createClinic(app.ctx.db, { ...good, ...wrong })).rejects.toThrow(BootstrapError);
+    }
+    expect((await app.ctx.db.query("SELECT 1 FROM clinics")).length).toBe(0);
+    expect(checkFirstSetup({ ...good, adminEmail: "  Arta@Example.Test " }).adminEmail).toBe("arta@example.test");
+  });
+
+  it("the database itself refuses a second clinic, whoever asks", async () => {
+    await newClinic(app);
+    const second = app.ctx.db.tx(async (q) => {
+      const id = (await q.query<{ id: number }>("INSERT INTO clinics (name) VALUES ('E dyta') RETURNING id"))[0]!.id;
+      await q.query("INSERT INTO users (clinic_id, role, full_name, email, password_hash) VALUES ($1, 'admin', 'Dikush', 'dikush@example.test', 'x')", [id]);
+    });
+    await expect(second).rejects.toThrow();
+    expect((await app.ctx.db.query("SELECT 1 FROM clinics")).length).toBe(1);
+    await expect(app.ctx.db.query("UPDATE clinics SET the_only_one = FALSE")).rejects.toThrow();
+  });
+
+  it("a database that still holds several clinics is not converted, and nothing in it is changed", async () => {
+    const old = await startApp();
+    try {
+      const db = old.ctx.db;
+      // The database as it stood before migration 006, with two clinics in it.
+      for (const sql of [
+        "DROP INDEX clinics_the_only_one_idx",
+        "ALTER TABLE clinics DROP CONSTRAINT clinics_the_only_one_check",
+        "ALTER TABLE clinics DROP COLUMN the_only_one",
+        "ALTER TABLE clinics ADD COLUMN slug TEXT UNIQUE",
+        "DELETE FROM schema_migrations WHERE version = 6",
+      ]) await db.query(sql);
+      for (const name of ["Klinika Një", "Klinika Dy"]) {
+        await db.tx(async (q) => {
+          const id = (await q.query<{ id: number }>("INSERT INTO clinics (name, slug) VALUES ($1, $2) RETURNING id", [name, name.toLowerCase().replace(" ", "-")]))[0]!.id;
+          await q.query("INSERT INTO users (clinic_id, role, full_name, email, password_hash) VALUES ($1, 'admin', 'Administrator', $2, 'x')", [id, `admin-${id}@example.test`]);
+          await q.query("INSERT INTO services (clinic_id, name, duration_minutes) VALUES ($1, 'Kontroll', 30)", [id]);
+        });
+      }
+      const picture = async () => JSON.stringify([await db.query("SELECT * FROM clinics ORDER BY id"), await db.query("SELECT id, clinic_id, email FROM users ORDER BY id"), await db.query("SELECT * FROM services ORDER BY id"), await db.query("SELECT version FROM schema_migrations ORDER BY version")]);
+      const before = await picture();
+      await expect(db.migrate()).rejects.toThrow(/holds 2 clinics/);
+      expect(await picture()).toBe(before);
+      // A person decides which clinic stays; then the migration goes through and keeps what is there.
+      await db.query("DELETE FROM clinics WHERE name = 'Klinika Dy'");
+      expect((await db.migrate()).applied.map((m) => m.version)).toEqual([6]);
+      const kept = await db.query<Record<string, unknown>>("SELECT * FROM clinics");
+      expect(kept).toHaveLength(1);
+      expect(kept[0]!.name).toBe("Klinika Një");
+      expect(Object.keys(kept[0]!)).not.toContain("slug");
+      expect((await db.query("SELECT 1 FROM users")).length).toBe(1);
+      expect((await db.query("SELECT 1 FROM services")).length).toBe(1);
+      expect((await db.migrate()).applied).toEqual([]);
+    } finally {
+      await old.close();
+    }
   });
 
   it("login answers the same for a wrong password and an unknown account", async () => {
@@ -129,11 +207,11 @@ describe("accounts and clinic setup", () => {
     expect((await admin.patch("/api/clinic", { phone: "+383 38 000 000" })).data.clinic.phone).toBe("+383 38 000 000");
   });
 
-  it("staff of one clinic cannot reach another clinic's staff", async () => {
-    const a = await newClinic(app);
-    const b = await newClinic(app);
-    expect((await a.admin.get(`/api/staff/${b.adminId}/hours`)).status).toBe(404);
-    expect((await a.admin.patch(`/api/staff/${b.adminId}`, { isActive: false })).status).toBe(404);
+  it("a member of staff who does not exist is not found, and staff are out of reach without signing in", async () => {
+    const { admin } = await newClinic(app);
+    expect((await admin.get("/api/staff/99999999/hours")).status).toBe(404);
+    expect((await admin.patch("/api/staff/99999999", { isActive: false })).status).toBe(404);
+    expect((await client(app.base).get("/api/staff")).status).toBe(401);
   });
 
   it("a clinic cannot lose its last active administrator", async () => {
@@ -181,8 +259,9 @@ describe("accounts and clinic setup", () => {
 
     it("refuses a clinic created without an administrator, and lets a clinic be removed whole", async () => {
       const db = app.ctx.db;
-      await refused(db.query("INSERT INTO clinics (slug, name) VALUES ('pa-administrator', 'Pa Administrator')"));
-      expect(await db.query("SELECT 1 FROM clinics WHERE slug = 'pa-administrator'")).toHaveLength(0);
+      await emptyDatabase(app);
+      await refused(db.query("INSERT INTO clinics (name) VALUES ('Pa Administrator')"));
+      expect(await db.query("SELECT 1 FROM clinics")).toHaveLength(0);
       const { clinic } = await newClinic(app);
       await db.query("DELETE FROM clinics WHERE id = $1", [clinic.id]);
       expect(await db.query("SELECT 1 FROM users WHERE clinic_id = $1", [clinic.id])).toHaveLength(0);

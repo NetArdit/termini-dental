@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
-import type { AppointmentStatus } from "./lib/api";
+import { ApiError, type AppointmentStatus } from "./lib/api";
 
 // The small set of building blocks every page uses, so buttons, fields and dialogs look and behave the
 // same everywhere.
@@ -229,14 +229,16 @@ export const useToast = () => useContext(ToastContext);
 
 /** Loads something, and reloads when `deps` change or `reload()` is called. Stale answers are dropped. */
 export function useLoad<T>(load: () => Promise<T>, deps: unknown[]) {
-  const [state, setState] = useState<{ data: T | null; error: string | null; loading: boolean }>({ data: null, error: null, loading: true });
+  // `status` is the server's answer code when the load failed with one: some failures are states to explain
+  // (503: not set up yet), not errors to retry.
+  const [state, setState] = useState<{ data: T | null; error: string | null; status: number | null; loading: boolean }>({ data: null, error: null, status: null, loading: true });
   const [tick, setTick] = useState(0);
   useEffect(() => {
     let current = true;
-    setState((s) => ({ ...s, loading: true, error: null }));
+    setState((s) => ({ ...s, loading: true, error: null, status: null }));
     load().then(
-      (data) => current && setState({ data, error: null, loading: false }),
-      (err: unknown) => current && setState({ data: null, error: err instanceof Error ? err.message : "Gabim i panjohur.", loading: false }),
+      (data) => current && setState({ data, error: null, status: null, loading: false }),
+      (err: unknown) => current && setState({ data: null, error: err instanceof Error ? err.message : "Gabim i panjohur.", status: err instanceof ApiError ? err.status : null, loading: false }),
     );
     return () => {
       current = false;

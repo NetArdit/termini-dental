@@ -60,7 +60,7 @@ describe("serving the web app", () => {
   });
 
   it("always has the page itself checked with the server, on every route of the app", async () => {
-    for (const route of ["/", "/k/klinika-demo", "/app/kalendari"]) {
+    for (const route of ["/", "/rezervo", "/app/kalendari"]) {
       const res = await get(route);
       expect(res.status).toBe(200);
       expect(res.headers.get("cache-control")).toBe("no-cache");

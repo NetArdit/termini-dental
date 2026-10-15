@@ -98,10 +98,9 @@ describe("the week at a glance", () => {
     expect((await admin.post("/api/appointments/counts", {})).status).toBe(404);
   });
 
-  it("shows a dentist their own numbers, the administrator the clinic's, and another clinic nothing", async () => {
+  it("shows a dentist their own numbers and the administrator the clinic's", async () => {
     const { admin, adminId, checkup } = await newClinic(app);
     const besnik = await newDentist(app, admin);
-    const other = await newClinic(app);
     await bookLocal(admin, adminId, checkup.id, WED_0900, { fullName: "Pacient i Artës" });
     await bookLocal(besnik.client, besnik.id, checkup.id, WED_0900, { fullName: "Pacient i Besnikut" });
     // Its own address: an older test counts the reminders that go to the default one.
@@ -112,8 +111,6 @@ describe("the week at a glance", () => {
     expect(await wed(besnik.client)).toBe(2);
     // A dentist cannot ask for a colleague's numbers: the answer is still their own.
     expect(await wed(besnik.client, `&dentistId=${adminId}`)).toBe(2);
-    expect(await wed(other.admin)).toBe(0);
-    expect(await wed(other.admin, `&dentistId=${besnik.id}`)).toBe(0);
   });
 
   it("stops counting a colleague's patient for the treating dentist when the day list stops showing them", async () => {
@@ -124,7 +121,7 @@ describe("the week at a glance", () => {
     const monday = async () => (await counts(besnik.client, "from=2026-10-12&days=1"))[0]!.count;
     expect(await monday()).toBe(1);
     app.setNow("2026-10-12T12:40:00Z");
-    await besnik.client.post(`/api/appointments/${visit}/status`, { status: "completed" });
+    expect((await besnik.client.put(`/api/appointments/${visit}/report`, { workDone: "Kontroll i rregullt." })).status).toBe(200);
     // Same rule as the day list: seven days after it started, a finished visit with someone else's patient is gone.
     app.setNow("2026-10-19T12:00:01Z");
     expect((await besnik.client.get("/api/appointments?date=2026-10-12")).data.appointments).toHaveLength(0);
@@ -155,18 +152,18 @@ describe("each dentist works with their own patients", () => {
     expect((await admin.get("/api/patients")).data.patients).toHaveLength(2);
   });
 
-  it("nothing of one clinic is reachable from another clinic", async () => {
+  it("nothing of the clinic is reachable without signing in, and what does not exist is not found", async () => {
     const a = await newClinic(app);
-    const b = await newClinic(app);
     const id = await bookLocal(a.admin, a.adminId, a.checkup.id, WED_0900);
     const patientId = (await a.admin.get("/api/patients")).data.patients[0].id;
-    expect((await b.admin.get(`/api/appointments/${id}`)).status).toBe(404);
-    expect((await b.admin.get(`/api/patients/${patientId}`)).status).toBe(404);
-    expect((await b.admin.patch(`/api/patients/${patientId}`, { fullName: "Ndryshuar nga tjetri" })).status).toBe(404);
-    expect((await b.admin.post("/api/appointments", { dentistId: b.adminId, serviceId: b.checkup.id, startsAt: WED_1000, patientId })).status).toBe(404);
-    expect((await b.admin.post("/api/appointments", { dentistId: a.adminId, serviceId: b.checkup.id, startsAt: WED_1000, newPatient: { fullName: "X Y Z" } })).status).toBe(400);
-    expect((await b.admin.get("/api/appointments?date=2026-10-14")).data.appointments).toHaveLength(0);
-    expect((await client(app.base).get("/api/appointments?date=2026-10-14")).status).toBe(401);
+    const nobody = client(app.base);
+    expect((await nobody.get(`/api/appointments/${id}`)).status).toBe(401);
+    expect((await nobody.get(`/api/patients/${patientId}`)).status).toBe(401);
+    expect((await nobody.patch(`/api/patients/${patientId}`, { fullName: "Ndryshuar nga jashtë" })).status).toBe(401);
+    expect((await nobody.get("/api/appointments?date=2026-10-14")).status).toBe(401);
+    expect((await a.admin.get("/api/appointments/99999999")).status).toBe(404);
+    expect((await a.admin.post("/api/appointments", { dentistId: a.adminId, serviceId: a.checkup.id, startsAt: WED_1000, patientId: 99999999 })).status).toBe(404);
+    expect((await a.admin.post("/api/appointments", { dentistId: 99999999, serviceId: a.checkup.id, startsAt: WED_1000, newPatient: { fullName: "X Y Z" } })).status).toBe(400);
   });
 
   it("patients can be added, found by name or phone, and edited; only the administrator reassigns them", async () => {
@@ -244,15 +241,10 @@ describe("a patient who is not, or no longer, the dentist's own", () => {
     expect(kept.appointment.status).toBe("completed");
     expect(kept.report).toMatchObject({ workDone: "Mbushje në dhëmbin 14.", version: 1 });
 
-    // The administrator keeps everything; another clinic gets nothing, and cannot tell that the ids exist.
+    // The administrator keeps everything.
     expect((await admin.get(`/api/patients/${patientId}`)).data.visits).toHaveLength(1);
     expect((await admin.get("/api/appointments?date=2026-10-12")).data.appointments).toHaveLength(1);
     expect(await mailsTo(admin, "teuta@example.test")).toBe(1);
-    const other = await newClinic(app);
-    const missing = await other.admin.get("/api/patients/99999999");
-    const foreign = await other.admin.get(`/api/patients/${patientId}`);
-    expect([foreign.status, foreign.data]).toEqual([missing.status, missing.data]);
-    expect((await other.admin.get(`/api/appointments/${visit}`)).status).toBe(404);
     // For the former dentist too, "not yours" and "does not exist" are one answer.
     const gone = await besnik.client.get(`/api/appointments/${visit}`);
     const never = await besnik.client.get("/api/appointments/99999999");
@@ -332,7 +324,7 @@ describe("the clinic cancels an appointment", () => {
     expect(mail.to).toBe("mimoza@example.test");
     expect(mail.subject).toContain("u anulua");
     expect(mail.text).toContain("Stomatologu mungon");
-    const wed = (await client(app.base).get(`/api/public/clinics/${clinic.slug}/slots?serviceId=${checkup.id}&from=2026-10-14&days=1`)).data.days[0];
+    const wed = (await client(app.base).get(`/api/public/clinic/slots?serviceId=${checkup.id}&from=2026-10-14&days=1`)).data.days[0];
     expect(wed.slots).toContain(WED_0900);
     expect((await admin.post(`/api/appointments/${id}/cancel`, {})).status).toBe(409);
   });
@@ -375,7 +367,11 @@ describe("the clinic cancels an appointment", () => {
       expect((await admin.post(`/api/appointments/${id}/cancel`, { reason: "vonë", confirmLate: true })).status).toBe(409);
       expect((await admin.post(`/api/appointments/${id}/status`, { status: "no_show" })).status).toBe(200);
       expect((await admin.get(`/api/appointments/${id}`)).data.appointment.status).toBe("no_show");
-      expect((await admin.post(`/api/appointments/${id}/status`, { status: "completed" })).status).toBe(200);
+      // The patient came after all: that is said by writing the report, not by pressing a mark.
+      expect((await admin.post(`/api/appointments/${id}/status`, { status: "completed" })).status).toBe(409);
+      expect((await admin.post(`/api/appointments/${id}/status`, { status: "booked" })).status).toBe(200);
+      expect((await admin.put(`/api/appointments/${id}/report`, { workDone: "Erdhi me vonesë. Kontroll." })).status).toBe(200);
+      expect((await admin.get(`/api/appointments/${id}`)).data.appointment.status).toBe("completed");
   });
 
   it("a dentist's time off cannot be booked, by patients or by staff", async () => {
@@ -474,7 +470,7 @@ describe("visit reports", () => {
 describe("reminders", () => {
   it("are sent once, the day before, and not for cancelled appointments", async () => {
       const { admin, adminId, clinic, checkup } = await newClinic(app);
-      await client(app.base).post(`/api/public/clinics/${clinic.slug}/book`, { serviceId: checkup.id, dentistId: null, startsAt: WED_0900, ...patientInput({ email: "kujtese@example.test" }) });
+      await client(app.base).post("/api/public/book", { serviceId: checkup.id, dentistId: null, startsAt: WED_0900, ...patientInput({ email: "kujtese@example.test" }) });
       const cancelled = await bookLocal(admin, adminId, checkup.id, WED_1000);
       await admin.post(`/api/appointments/${cancelled}/cancel`, {});
 
@@ -511,7 +507,7 @@ describe("emails that did not get through", () => {
   it("a reminder the mail server refused is tried again by itself, and arrives once", async () => {
     const { admin, clinic, checkup } = await newClinic(app);
     const to = "kujtese-deshtim@example.test";
-    await client(app.base).post(`/api/public/clinics/${clinic.slug}/book`, { serviceId: checkup.id, dentistId: null, startsAt: WED_0900, ...patientInput({ email: to }) });
+    await client(app.base).post("/api/public/book", { serviceId: checkup.id, dentistId: null, startsAt: WED_0900, ...patientInput({ email: to }) });
     app.setNow("2026-10-13T08:00:00Z"); // 23 hours before
 
     app.failMail.value = true;
@@ -541,7 +537,7 @@ describe("emails that did not get through", () => {
   it("a reminder written down just before the server died is still sent, once", async () => {
     const { clinic, checkup } = await newClinic(app);
     const to = "kujtese-rrezim@example.test";
-    const booked = await client(app.base).post(`/api/public/clinics/${clinic.slug}/book`, { serviceId: checkup.id, dentistId: null, startsAt: WED_0900, ...patientInput({ email: to }) });
+    const booked = await client(app.base).post("/api/public/book", { serviceId: checkup.id, dentistId: null, startsAt: WED_0900, ...patientInput({ email: to }) });
     expect(booked.status).toBe(201);
     app.setNow("2026-10-13T08:00:00Z");
     // Exactly what sendDueReminders commits before it sends: the mark and the queued message, together.
@@ -589,7 +585,7 @@ describe("emails that did not get through", () => {
 
   it("sending again by hand never produces a second copy", async () => {
     const { admin, adminId, checkup } = await newClinic(app);
-    const stranger = await newClinic(app);
+    const besnik = await newDentist(app, admin);
     const to = "dy-klikime@example.test";
     const id = await bookLocal(admin, adminId, checkup.id, WED_0900, { fullName: "Dy Klikime", email: to });
     app.failMail.value = true;
@@ -613,9 +609,9 @@ describe("emails that did not get through", () => {
     expect(again.data.error).toContain("pranuar");
     expect(received(to, "u anulua")).toBe(1);
 
-    // Another clinic cannot touch it, and gets the same answer as for an id that does not exist.
-    const foreign = await stranger.admin.post(`/api/emails/${row.id}/resend`);
-    const missing = await stranger.admin.post("/api/emails/99999999/resend");
+    // A colleague whose patient this is not cannot touch it, and gets the same answer as for an id that does not exist.
+    const foreign = await besnik.client.post(`/api/emails/${row.id}/resend`);
+    const missing = await besnik.client.post("/api/emails/99999999/resend");
     expect([foreign.status, foreign.data]).toEqual([404, missing.data]);
   });
 

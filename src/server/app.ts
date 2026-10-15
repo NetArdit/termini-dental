@@ -12,6 +12,7 @@ import { MemoryRateLimiter } from "./limits";
 import { requestLog, safeError, silentLogger } from "./log";
 import { authRoutes } from "./routes/auth";
 import { clinicRoutes } from "./routes/clinic";
+import { galleryRoutes } from "./routes/gallery";
 import { publicRoutes } from "./routes/public";
 import { staffRoutes } from "./routes/staff";
 
@@ -32,6 +33,11 @@ export function createApp(ctx: Ctx): Express {
   });
   // Text answers (the script, the styles, JSON) travel compressed when the browser can take it.
   app.use(compression());
+  // One address takes more than the rest: a picture of a visit, sent as text inside JSON. It is named here,
+  // before the general limit, so that nothing else can be made to swallow megabytes.
+  app.post("/api/appointments/:id/images", express.json({ limit: "4mb" }));
+  // And a work for the gallery: up to two pictures.
+  app.post("/api/gallery", express.json({ limit: "4mb" }));
   app.use(express.json({ limit: "100kb" }));
   app.use(cookieParser());
 
@@ -59,6 +65,7 @@ export function createApp(ctx: Ctx): Express {
     }
   });
   app.use("/api/auth", authRoutes(ctx));
+  app.use("/api", galleryRoutes(ctx));
   app.use("/api/public", publicRoutes(ctx));
   app.use("/api", clinicRoutes(ctx));
   app.use("/api", staffRoutes(ctx));

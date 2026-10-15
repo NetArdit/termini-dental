@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useSession } from "../auth";
 import { ApiError, api, type Appointment, type Report, type ReportVersion } from "../lib/api";
-import { dateOf, fmtDateTime, fmtTime, today } from "../lib/format";
+import { dateOf, fmtDateTime, fmtTime, today, fmtMoney } from "../lib/format";
 import { Badge, Button, Field, Input, Loading, Modal, Notice, StatusBadge, Textarea, useToast } from "../ui";
+import { VisitImages } from "./VisitImages";
 
 // One appointment, opened from the calendar, the reports page or a patient's history: its details, what can
 // be done with it now, and the visit report.
@@ -153,6 +154,12 @@ export function AppointmentDialog({ id, onClose, onChanged }: { id: number | nul
               <Badge>{a.source === "online" ? "Rezervuar online" : "Shtuar nga klinika"}</Badge>
               {a.cancelLate ? <Badge tone="warn">Anulim i vonë</Badge> : null}
             </div>
+            {a.deposit ? (
+              <p className="mt-3 rounded-lg bg-brand-50 px-3 py-2 text-sm">
+                <span className="font-medium">Depozitë {fmtMoney(a.deposit.amountMinor, a.deposit.currency)}:</span> zbritet nga fatura në vizitë.{" "}
+                <span className="text-ink-soft">Demonstrim: nuk është arkëtuar asnjë pagesë.</span>
+              </p>
+            ) : null}
             <p className="mt-3 text-lg font-medium first-letter:uppercase">
               {fmtDateTime(a.startsAt, zone)} – {fmtTime(a.endsAt, zone)}
             </p>
@@ -223,9 +230,12 @@ export function AppointmentDialog({ id, onClose, onChanged }: { id: number | nul
             <div className="flex flex-wrap gap-2">
               {started ? (
                 <>
-                  <Button variant={a.status === "completed" ? "primary" : "secondary"} size="sm" onClick={() => setStatus("completed")}>
-                    Erdhi
-                  </Button>
+                  {/* "Erdhi" is what saving the report says. The button only puts the mark back on a visit whose report exists. */}
+                  {detail?.report ? (
+                    <Button variant={a.status === "completed" ? "primary" : "secondary"} size="sm" onClick={() => setStatus("completed")}>
+                      Erdhi
+                    </Button>
+                  ) : null}
                   <Button variant={a.status === "no_show" ? "primary" : "secondary"} size="sm" onClick={() => setStatus("no_show")}>
                     Nuk erdhi
                   </Button>
@@ -308,6 +318,8 @@ export function AppointmentDialog({ id, onClose, onChanged }: { id: number | nul
               </div>
             )}
           </div>
+
+          {a.status !== "cancelled" ? <VisitImages appointmentId={a.id} zone={zone} canAdd={canReport} /> : null}
         </div>
       )}
     </Modal>

@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { DateTime } from "luxon";
 import { hashPassword } from "./auth";
@@ -19,8 +19,8 @@ const PASSWORD = process.env.DEMO_PASSWORD || "demo12345";
 const SHOWN = process.env.DEMO_PASSWORD ? "(the DEMO_PASSWORD you set)" : PASSWORD;
 
 async function seed(db: Db) {
-  if ((await db.query("SELECT 1 FROM clinics WHERE slug = 'klinika-demo'")).length) {
-    console.log("The demo clinic already exists. Nothing done.");
+  if ((await db.query("SELECT 1 FROM clinics LIMIT 1")).length) {
+    console.log("This database already has its clinic. Nothing done: the demo data is for an empty database.");
     return;
   }
   const hash = await hashPassword(PASSWORD);
@@ -37,10 +37,19 @@ async function seed(db: Db) {
   await db.tx(async (q) => {
     const one = async (sql: string, params: unknown[]) => (await q.query<{ id: number }>(sql, params))[0]!.id;
 
-    const clinic = await one("INSERT INTO clinics (slug, name, phone, address) VALUES ('klinika-demo', 'Klinika Dentare Demo', '+383 38 123 456', 'Rr. Nëna Terezë 12, Prishtinë') RETURNING id", []);
-    const arta = await one("INSERT INTO users (clinic_id, role, full_name, email, password_hash) VALUES ($1, 'admin', 'Dr. Arta Krasniqi', 'arta@demo.test', $2) RETURNING id", [clinic, hash]);
-    const besnik = await one("INSERT INTO users (clinic_id, role, full_name, email, password_hash) VALUES ($1, 'dentist', 'Dr. Besnik Gashi', 'besnik@demo.test', $2) RETURNING id", [clinic, hash]);
-    for (const dentist of [arta, besnik]) {
+    const clinic = await one("INSERT INTO clinics (name, phone, address) VALUES ('Rrënja Dental', '+383 44 123 456', 'Rr. Nëna Terezë 12, Prishtinë') RETURNING id", []);
+    // A title and a portrait for each dentist: what a patient sees on the public page. The portraits are
+    // illustrative (from the design direction), not people of any real clinic.
+    const portrait = (name: string) => readFileSync(new URL(`../web/public/media/staff/${name}.jpg`, import.meta.url)).toString("base64");
+    const staff = async (role: "admin" | "dentist", fullName: string, email: string, title: string, photo: string) =>
+      one(
+        "INSERT INTO users (clinic_id, role, full_name, email, password_hash, title, photo_type, photo_base64) VALUES ($1, $2, $3, $4, $5, $6, 'image/jpeg', $7) RETURNING id",
+        [clinic, role, fullName, email, hash, title, portrait(photo)],
+      );
+    const arta = await staff("admin", "Dr. Arta Krasniqi", "arta@demo.test", "Kirurgji Orale & Implantologji", "arta");
+    const besnik = await staff("dentist", "Dr. Besnik Gashi", "besnik@demo.test", "Stomatologji Estetike & Protetikë", "besnik");
+    const linda = await staff("dentist", "Dr. Linda Hoxha", "linda@demo.test", "Ortodonci & Pedodonci", "linda");
+    for (const dentist of [arta, besnik, linda]) {
       for (let weekday = 1; weekday <= 5; weekday++) {
         // A lunch break, so the schedule shows two periods a day.
         await q.query("INSERT INTO working_hours (user_id, weekday, start_minute, end_minute) VALUES ($1, $2, 540, 780), ($1, $2, 840, 1020)", [dentist, weekday]);
@@ -48,8 +57,9 @@ async function seed(db: Db) {
     }
 
     const service: Record<string, number> = {};
-    for (const [name, minutes] of [["Kontroll", 30], ["Mbushje", 45], ["Pastrim i gurëzave", 45], ["Nxjerrje dhëmbi", 30], ["Zbardhim dhëmbësh", 60]] as const) {
-      service[name] = await one("INSERT INTO services (clinic_id, name, duration_minutes) VALUES ($1, $2, $3) RETURNING id", [clinic, name, minutes]);
+    // Demo prices in cents, each "from": what such a service starts at in this made-up clinic.
+    for (const [name, minutes, priceFrom] of [["Kontroll", 30, 1000], ["Mbushje", 45, 2500], ["Pastrim i gurëzave", 45, 2500], ["Nxjerrje dhëmbi", 30, 2000], ["Zbardhim dhëmbësh", 60, 12000]] as const) {
+      service[name] = await one("INSERT INTO services (clinic_id, name, duration_minutes, price_from_minor) VALUES ($1, $2, $3, $4) RETURNING id", [clinic, name, minutes, priceFrom]);
     }
     const minutesOf: Record<string, number> = { Kontroll: 30, Mbushje: 45, "Pastrim i gurëzave": 45, "Nxjerrje dhëmbi": 30, "Zbardhim dhëmbësh": 60 };
 
@@ -116,6 +126,34 @@ async function seed(db: Db) {
     const extraction = await appointment(besnik, mimoza, "Nxjerrje dhëmbi", at(workday(-3, -1), 15), "completed", "local");
     await report(extraction, besnik, "Nxjerrje e dhëmbit 48. Qepje me dy pe. Antibiotik 5 ditë.", 7, at(workday(-3, -1), 16));
 
+    // Demo pictures on the demo visits, so that the pictures of a visit can be seen at work. They are the
+    // stock photograph of X-ray films that the public site also uses (public/media/photographs.json): an
+    // illustration, not anybody's X-ray.
+    const demoXray = readFileSync(new URL("../web/public/media/rentgen-800.webp", import.meta.url));
+    const picture = (appt: number, author: number, caption: string, when: Date) =>
+      q.query("INSERT INTO visit_images (clinic_id, appointment_id, kind, caption, content_type, size_bytes, data_base64, uploaded_by, created_at) VALUES ($1, $2, 'xray', $3, 'image/webp', $4, $5, $6, $7)", [clinic, appt, caption, demoXray.length, demoXray.toString("base64"), author, when]);
+    await picture(filling, arta, "Para mbushjes, dhëmbi 36", at(twoWeeksAgo, 11));
+    await picture(cleaning, arta, "Panoramik para pastrimit", at(lastWeek, 10));
+    await picture(cleaning, arta, "Pas pastrimit", at(lastWeek, 10));
+    await picture(extraction, besnik, "Dhëmbi 48 para nxjerrjes", at(workday(-3, -1), 16));
+
+    // "Punët tona" in the demo: the site's own stock photographs, marked illustrative (which the public page
+    // then says under each). No picture of anybody's treatment is made up.
+    const stock = (name: string) => readFileSync(new URL(`../web/public/media/${name}`, import.meta.url)).toString("base64");
+    const work = (title: string, description: string, file: string) =>
+      q.query("INSERT INTO gallery_items (clinic_id, title, description, after_type, after_base64, basis, status, created_by) VALUES ($1, $2, $3, 'image/webp', $4, 'illustrative', 'published', $5)", [clinic, title, description, stock(file), arta]);
+    await work("Kabina e trajtimit", "Pajisje moderne dhe sterilizim pas çdo pacienti.", "kabina-800.webp");
+    await work("Konsulta e parë", "Para çdo trajtimi flasim për planin, kohën dhe çmimin.", "hero-konsulte-800.webp");
+    await work("Diagnostikimi", "Rentgeni na tregon atë që nuk shihet me sy.", "rentgen-800.webp");
+
+    // What the patients of the demo "wrote" afterwards: made-up reviews for made-up visits, already published,
+    // so that the public pages of the demo show how reviews look. A real clinic starts with none.
+    const review = (appt: number, dentist: number, rating: number, comment: string | null) =>
+      q.query("INSERT INTO dentist_reviews (clinic_id, appointment_id, dentist_id, rating, comment, status, moderated_by, moderated_at) VALUES ($1, $2, $3, $4, $5, 'published', $6, now())", [clinic, appt, dentist, rating, comment, arta]);
+    await review(filling, arta, 5, "Më shpjegoi çdo hap para se të fillonte dhe nuk ndjeva dhimbje fare.");
+    await review(cleaning, arta, 5, "E saktë me orarin dhe shumë e kujdesshme. Do të vij përsëri.");
+    await review(extraction, besnik, 4, "Nxjerrja shkoi shpejt. Prita pak në fillim, por më telefonuan të nesërmen për të pyetur si jam.");
+
     // The coming days: something to see in the calendar.
     const soon = workday(1, 1);
     await appointment(arta, liridona, "Kontroll", at(soon, 9, 30), "booked", "local");
@@ -126,7 +164,7 @@ async function seed(db: Db) {
   });
 
   console.log("Demo clinic created.");
-  console.log("  Booking page:   /k/klinika-demo");
+  console.log("  Booking page:   /rezervo");
   console.log(`  Administrator:  arta@demo.test   / ${SHOWN}`);
   console.log(`  Dentist:        besnik@demo.test / ${SHOWN}`);
 }

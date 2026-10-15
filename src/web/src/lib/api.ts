@@ -52,7 +52,6 @@ export const api = {
 
 export interface Clinic {
   id: number;
-  slug: string;
   name: string;
   phone: string | null;
   address: string | null;
@@ -79,6 +78,8 @@ export interface Staff {
   email: string;
   isBookable: boolean;
   isActive: boolean;
+  title: string | null;
+  hasPhoto: boolean;
 }
 
 export interface Service {
@@ -86,6 +87,8 @@ export interface Service {
   name: string;
   durationMinutes: number;
   isActive?: boolean;
+  /** The price the service starts from, in cents; null when the clinic publishes none. */
+  priceFromMinor?: number | null;
 }
 
 export type AppointmentStatus = "booked" | "completed" | "no_show" | "cancelled";
@@ -110,6 +113,8 @@ export interface Appointment {
   cancelLate: boolean;
   hasReport: boolean;
   lastEmailStatus: "accepted" | "stored" | "failed" | null;
+  /** The deposit of an online booking. "demo": shown, never collected. */
+  deposit: { mode: "demo"; amountMinor: number; currency: string; billCreditMinor: number } | null;
 }
 
 export interface Report {
@@ -144,6 +149,8 @@ export interface Patient {
 export interface Visit extends Appointment {
   workDone: string | null;
   nextVisitDays: number | null;
+  /** The visit's X-rays and photographs, by the address each is fetched from. */
+  images?: Array<{ id: number; kind: "xray" | "photo"; caption: string | null; url: string }>;
 }
 
 export interface WorkingPeriod {

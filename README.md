@@ -9,7 +9,7 @@ Working name. Status: version 1, runs locally, not deployed.
 
 For patients (no account):
 
-- Pick a service, a dentist (or "anyone free"), a day and a time on the clinic's own page (`/k/<clinic>`).
+- Pick a service, a dentist (or "anyone free"), a day and a time on the clinic's booking page (`/rezervo`).
 - Online booking is closed for the next 36 hours, so tomorrow's schedule never changes behind the clinic's back.
 - Before confirming, the patient reads and accepts a notice: the clinic may cancel if something comes up, and
   then tells them by email, normally at least 24 hours ahead.
@@ -45,7 +45,7 @@ npm run seed     # optional: creates a demo clinic
 npm run dev      # API on :3101, web app on http://localhost:5180
 ```
 
-With the demo data: the booking page is `http://localhost:5180/k/klinika-demo`; log in at `/kycu` as
+With the demo data: the booking page is `http://localhost:5180/rezervo`; log in at `/kycu` as
 `arta@demo.test` (administrator) or `besnik@demo.test` (dentist), password `demo12345`.
 
 Other commands: `npm test`, `npm run typecheck`, `npm run build` (then `npm start` serves the built app and

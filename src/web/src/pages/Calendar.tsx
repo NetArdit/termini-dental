@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSession } from "../auth";
 import { AppointmentDialog } from "../components/AppointmentDialog";
 import { BookLocalDialog } from "../components/BookLocalDialog";
@@ -113,6 +113,14 @@ export function Calendar() {
   const staff = useLoad(() => api.get<{ staff: Staff[] }>("/api/staff"), []);
   const day = useLoad(() => api.get<{ appointments: Appointment[] }>(`/api/appointments?date=${date}${dentistId ? `&dentistId=${dentistId}` : ""}`), [date, dentistId]);
   const weekStart = mondayOf(date);
+  // Which day the appointments now on the page belong to. Right after another day is chosen the page still
+  // holds the previous day's list for a moment: nothing is said about the new day until its own list is here.
+  const [shownFor, setShownFor] = useState<string | null>(null);
+  useEffect(() => {
+    if (day.data && !day.loading) setShownFor(date);
+    // Only when a list arrives: the date changing alone must not relabel the old list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [day.data, day.loading]);
   const week = useLoad(() => api.get<{ days: Array<{ date: string; count: number }> }>(`/api/appointments/counts?from=${weekStart}&days=7${dentistId ? `&dentistId=${dentistId}` : ""}`), [weekStart, dentistId]);
 
   const list = day.data?.appointments ?? [];
@@ -175,6 +183,12 @@ export function Calendar() {
         ) : null}
       </div>
 
+      {/* For somebody who does not see the page change: which day is now shown and how much is on it, said
+          once the day has loaded. Focus stays where it was, on the arrow or the day that was pressed. */}
+      <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {day.loading || day.error || shownFor !== date ? "" : `${fmtDateLong(date)}: ${live.length === 0 ? "asnjë termin" : live.length === 1 ? "1 termin" : `${live.length} termine`}${list.length !== live.length ? `, ${list.length - live.length} të anuluara` : ""}.`}
+      </p>
+
       {day.loading && !day.data ? (
         <Loading />
       ) : day.error ? (
@@ -203,7 +217,7 @@ export function Calendar() {
             {list.length !== live.length ? ` · ${list.length - live.length} të anuluara` : ""}
           </p>
           <Card className="overflow-hidden">
-            <ul className="divide-y divide-line">
+            <ul className="divide-y divide-line" aria-label={`Terminet e ditës, ${fmtDateLong(date)}`}>
               {list.map((a) => (
                 <AppointmentRow key={a.id} a={a} zone={zone} showDentist={user.role === "admin" && !dentistId} onOpen={() => setOpenId(a.id)} />
               ))}

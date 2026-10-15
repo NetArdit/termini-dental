@@ -49,6 +49,12 @@ export const errorHandler =
     res.status(400).json({ error: "Kërkesë e pavlefshme." });
     return;
   }
+  // More than this address accepts. It used to be answered as an unexplained failure (500); it is the
+  // sender's request that is too large, and saying so tells them what to change.
+  if (typeof err === "object" && err !== null && "type" in err && (err as { type: unknown }).type === "entity.too.large") {
+    res.status(413).json({ error: "Kërkesa është shumë e madhe." });
+    return;
+  }
   log.error("unexpected_error", { requestId: req.requestId, method: req.method, ...safeError(err) });
   // The id lets the clinic quote something that leads straight to the log line, without quoting data.
   res.status(500).json({ error: "Diçka shkoi keq. Ju lutemi provoni përsëri.", requestId: req.requestId });

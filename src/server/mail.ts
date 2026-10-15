@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from "node:crypto";
 import type { Queryer } from "./db";
 
 // Email. Every message the system tries to send is written to email_log with its outcome, so the clinic can
@@ -60,6 +61,14 @@ export async function smtpMailer(smtp: { host: string; port: number; user: strin
   };
 }
 
+/**
+ * What stands in a stored message where the patient's private link has its secret part. The secret is put in
+ * only when the message is handed to the mail server, and is never written down (see attemptDelivery).
+ */
+export const LINK_TOKEN = "{{token}}";
+/** A stored message as staff may see it: they are told there is a link, never shown where it would go. */
+export const withoutLink = (text: string) => text.replace(/\S*\{\{token\}\}/g, "[linku privat i pacientit]");
+
 export interface OutgoingEmail {
   clinicId: number;
   appointmentId: number | null;
@@ -104,15 +113,34 @@ export async function queueEmail(q: Queryer, email: OutgoingEmail): Promise<numb
  *   goes silent, not when it is merely slow, and a send cannot be called back. Such a send could coincide
  *   with a new attempt. Nothing here rules that out.
  */
-export async function attemptDelivery(q: Queryer, mailer: Mailer, emailId: number, now: Date): Promise<EmailStatus | null> {
-  const claimed = await q.query<{ to_email: string; subject: string; body: string }>(
+export async function attemptDelivery(q: Queryer, mailer: Mailer, emailId: number, now: Date, token?: string): Promise<EmailStatus | null> {
+  const claimed = await q.query<{ to_email: string; subject: string; body: string; appointment_id: number | null }>(
     `UPDATE email_log SET attempts = attempts + 1, last_attempt_at = $2, sending_since = $2
       WHERE id = $1 AND status IN ('stored', 'failed') AND (sending_since IS NULL OR sending_since <= $3)
-      RETURNING to_email, subject, body`,
+      RETURNING to_email, subject, body, appointment_id`,
     [emailId, now, new Date(now.getTime() - CLAIM_MS)],
   );
   const message = claimed[0];
   if (!message) return null;
+  // The private link. Whoever made the booking a moment ago still has it and passes it in. Nobody else
+  // does, and it is stored nowhere: a later attempt makes a new link for this message and keeps its hash
+  // beside the others', so the link on the patient's screen and the link of every mail all work.
+  if (message.body.includes(LINK_TOKEN)) {
+    let secret = token;
+    if (!secret && message.appointment_id !== null) {
+      const fresh = randomBytes(32).toString("base64url");
+      // Added to the links this appointment already has, never in place of one: an earlier mail may have
+      // arrived. Only while the appointment stands: an attempt that was under way when the appointment was
+      // cancelled cannot bring a link back to life.
+      const set = await q.query("UPDATE appointments SET mail_token_hashes = array_append(mail_token_hashes, $2) WHERE id = $1 AND status = 'booked' RETURNING id", [
+        message.appointment_id,
+        createHash("sha256").update(fresh).digest("hex"),
+      ]);
+      if (set.length) secret = fresh;
+    }
+    // No appointment left to open (it was cancelled): the sentence goes out without a link that would not work.
+    message.body = secret ? message.body.split(LINK_TOKEN).join(secret) : withoutLink(message.body);
+  }
   const timeoutMs = Math.min(mailer.timeoutMs ?? SEND_TIMEOUT_MS, CLAIM_MS / 2);
   let timer: ReturnType<typeof setTimeout> | undefined;
   let timedOut = false;
@@ -144,10 +172,10 @@ export async function attemptDelivery(q: Queryer, mailer: Mailer, emailId: numbe
 }
 
 /** Writes the message down and, when a mail server is configured, tries once to hand it over. */
-export async function deliver(q: Queryer, mailer: Mailer | null, email: OutgoingEmail, now: Date): Promise<EmailStatus> {
+export async function deliver(q: Queryer, mailer: Mailer | null, email: OutgoingEmail, now: Date, token?: string): Promise<EmailStatus> {
   const id = await queueEmail(q, email);
   if (!mailer) return "stored";
-  return (await attemptDelivery(q, mailer, id, now)) ?? "stored";
+  return (await attemptDelivery(q, mailer, id, now, token)) ?? "stored";
 }
 
 /**

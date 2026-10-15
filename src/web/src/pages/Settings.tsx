@@ -1,6 +1,7 @@
 import { useEffect, useId, useState, type FormEvent, type KeyboardEvent } from "react";
 import { useAuth, useSession } from "../auth";
 import { ApiError, api, type Service, type Staff, type WorkingPeriod } from "../lib/api";
+import { portrait } from "../lib/portrait";
 import { WEEKDAYS, fmtDateTime, fmtDuration, minutesToTime, timeToMinutes, today, zonedInstant } from "../lib/format";
 import { Badge, Button, Card, Field, Input, LoadError, Loading, Modal, Notice, PageHeader, Select, useLoad, useToast } from "../ui";
 
@@ -401,6 +402,7 @@ function StaffSettings() {
                   {s.id === user.id ? <Badge>Ju</Badge> : null}
                 </p>
                 <p className="text-sm break-all text-ink-soft sm:truncate">{s.email}</p>
+                <StaffProfile staff={s} onChange={() => staff.reload()} />
               </div>
               <div className="flex flex-wrap items-center gap-3 text-sm">
                 <label className="flex items-center gap-2">
@@ -467,7 +469,7 @@ function StaffSettings() {
 function ServiceSettings() {
   const toast = useToast();
   const services = useLoad(() => api.get<{ services: Service[] }>("/api/services"), []);
-  const [form, setForm] = useState({ name: "", durationMinutes: "30" });
+  const [form, setForm] = useState({ name: "", durationMinutes: "30", price: "" });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -476,8 +478,8 @@ function ServiceSettings() {
     setBusy(true);
     setError(null);
     try {
-      await api.post("/api/services", { name: form.name, durationMinutes: Number(form.durationMinutes) });
-      setForm({ name: "", durationMinutes: "30" });
+      await api.post("/api/services", { name: form.name, durationMinutes: Number(form.durationMinutes), priceFromMinor: euroToMinor(form.price) });
+      setForm({ name: "", durationMinutes: "30", price: "" });
       toast("Shërbimi u shtua");
       services.reload();
     } catch (err) {
@@ -503,10 +505,11 @@ function ServiceSettings() {
     <div className="space-y-6">
       <Card className="p-5">
         <h2 className="font-display text-xl font-semibold tracking-tight">Shërbim i ri</h2>
-        <p className="mt-1 mb-4 text-sm text-ink-soft">Kohëzgjatja vendos sa vend zë termini në kalendar.</p>
-        <form onSubmit={add} className="grid gap-3 sm:grid-cols-[1fr_10rem_auto] sm:items-end">
+        <p className="mt-1 mb-4 text-sm text-ink-soft">Kohëzgjatja vendos sa vend zë termini në kalendar. Çmimi fillestar u shfaqet pacientëve si “nga 20 €”; lëreni bosh që të mos shfaqet.</p>
+        <form onSubmit={add} className="grid gap-3 sm:grid-cols-[1fr_8rem_9rem_auto] sm:items-end">
           <Field label="Emri">{(p) => <Input {...p} required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="p.sh. Zbardhim dhëmbësh" />}</Field>
           <Field label="Minuta">{(p) => <Input {...p} type="number" min={5} max={480} step={5} required value={form.durationMinutes} onChange={(e) => setForm({ ...form, durationMinutes: e.target.value })} />}</Field>
+          <Field label="Çmimi nga (€)">{(p) => <Input {...p} type="number" min={0} step={0.01} inputMode="decimal" placeholder="pa çmim" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />}</Field>
           <Button type="submit" busy={busy}>
             Shto
           </Button>
@@ -525,13 +528,121 @@ function ServiceSettings() {
                 <span className={`font-medium ${s.isActive ? "" : "text-ink-faint line-through"}`}>{s.name}</span>
                 <span className="ml-2 text-sm text-ink-soft">{fmtDuration(s.durationMinutes)}</span>
               </span>
-              <Button variant="secondary" size="sm" onClick={() => void patch(s.id, { isActive: !s.isActive })}>
-                {s.isActive ? "Çaktivizo" : "Aktivizo"}
-              </Button>
+              <span className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-2 text-sm text-ink-soft">
+                  <span>Nga</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    inputMode="decimal"
+                    aria-label={`Çmimi nga, në euro, për ${s.name}`}
+                    placeholder="pa çmim"
+                    defaultValue={s.priceFromMinor == null ? "" : String(s.priceFromMinor / 100)}
+                    onBlur={(e) => {
+                      const next = euroToMinor(e.target.value);
+                      if (next !== (s.priceFromMinor ?? null)) void patch(s.id, { priceFromMinor: next });
+                    }}
+                    className="h-8 w-24 rounded-lg border border-line-strong bg-surface px-2 text-right text-sm text-ink tabular-nums"
+                  />
+                  <span>€</span>
+                </label>
+                <Button variant="secondary" size="sm" onClick={() => void patch(s.id, { isActive: !s.isActive })}>
+                  {s.isActive ? "Çaktivizo" : "Aktivizo"}
+                </Button>
+              </span>
             </li>
           ))}
         </ul>
       </Card>
+    </div>
+  );
+}
+
+/** "25" or "25,50" typed as euro -> cents; empty or not a number -> null (no price shown). */
+function euroToMinor(text: string): number | null {
+  const n = Number(text.trim().replace(",", "."));
+  return text.trim() === "" || !Number.isFinite(n) || n < 0 ? null : Math.round(n * 100);
+}
+
+/** The title and the portrait patients see on the public page, edited by the administrator or by the person. */
+function StaffProfile({ staff, onChange }: { staff: Staff; onChange: () => void }) {
+  const toast = useToast();
+  const [title, setTitle] = useState(staff.title ?? "");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => setTitle(staff.title ?? ""), [staff.title]);
+
+  async function saveTitle() {
+    setBusy(true);
+    try {
+      await api.patch(`/api/staff/${staff.id}`, { title: title.trim() === "" ? null : title.trim() });
+      toast("Titulli u ruajt");
+      onChange();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Gabim.", "danger");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function upload(files: FileList | null) {
+    const file = files?.[0];
+    if (!file) return;
+    setBusy(true);
+    try {
+      const picture = await portrait(file);
+      await api.put(`/api/staff/${staff.id}/photo`, picture);
+      toast("Fotografia u ruajt");
+      onChange();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Fotografia nuk u ruajt.", "danger");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    setBusy(true);
+    try {
+      await api.del(`/api/staff/${staff.id}/photo`);
+      toast("Fotografia u hoq");
+      onChange();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Gabim.", "danger");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 flex flex-wrap items-end gap-3">
+      <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
+        <span className="font-medium text-ink-soft">Titulli (shfaqet te faqja)</span>
+        <input
+          type="text"
+          value={title}
+          maxLength={120}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="p.sh. Specialist i Endodoncisë"
+          className="h-10 w-full min-w-48 rounded-lg border border-line-strong bg-surface px-3 text-[15px]"
+        />
+      </label>
+      <Button variant="secondary" size="sm" busy={busy} disabled={title.trim() === (staff.title ?? "")} onClick={() => void saveTitle()}>
+        Ruaj titullin
+      </Button>
+      <label className="inline-flex">
+        <span className="sr-only">Fotografia e {staff.fullName}</span>
+        <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(e) => { void upload(e.target.files); e.target.value = ""; }} />
+        <span className="tap inline-flex h-9 cursor-pointer items-center rounded-lg border border-line-strong bg-surface px-3 text-sm font-semibold hover:bg-paper">
+          {staff.hasPhoto ? "Ndrysho fotografinë" : "Shto fotografi"}
+        </span>
+      </label>
+      {staff.hasPhoto ? (
+        <Button variant="secondary" size="sm" busy={busy} onClick={() => void remove()}>
+          Hiqe fotografinë
+        </Button>
+      ) : null}
     </div>
   );
 }

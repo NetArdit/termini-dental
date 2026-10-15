@@ -40,6 +40,32 @@ function weekdayIndex(date: string): number {
 }
 
 /** "E premte, 16 tetor 2026" */
+const DAY = ["", "E hënë", "E martë", "E mërkurë", "E enjte", "E premte", "E shtunë", "E diel"];
+const hm = (minute: number) => `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
+
+/**
+ * Opening hours as people say them: days that share the same hours are named together.
+ * [{1,540,1020},...,{5,540,1020}] -> [["E hënë – E premte", "09:00–17:00"]]
+ */
+export function fmtOpeningHours(hours: Array<{ weekday: number; startMinute: number; endMinute: number }>): Array<[string, string]> {
+  const out: Array<{ from: number; to: number; time: string }> = [];
+  for (const h of [...hours].sort((a, b) => a.weekday - b.weekday)) {
+    const time = `${hm(h.startMinute)}–${hm(h.endMinute)}`;
+    const last = out[out.length - 1];
+    if (last && last.time === time && last.to === h.weekday - 1) last.to = h.weekday;
+    else out.push({ from: h.weekday, to: h.weekday, time });
+  }
+  return out.map((g) => [g.from === g.to ? DAY[g.from]! : `${DAY[g.from]} – ${DAY[g.to]}`, g.time]);
+}
+
+/** 1500, "EUR" -> "15 €"; 1550 -> "15,50 €". */
+export function fmtMoney(minor: number, currency: string): string {
+  const whole = Math.trunc(minor / 100);
+  const cents = Math.abs(minor % 100);
+  const amount = cents ? `${whole},${String(cents).padStart(2, "0")}` : String(whole);
+  return `${amount} ${currency === "EUR" ? "€" : currency}`;
+}
+
 export function fmtDateLong(date: string): string {
   const [y, m, d] = date.split("-").map(Number);
   return `${WEEKDAYS[weekdayIndex(date)]}, ${d} ${MONTHS[(m ?? 1) - 1]} ${y}`;

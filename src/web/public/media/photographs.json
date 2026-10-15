@@ -1,0 +1,56 @@
+{
+  "hero-konsulte": {
+    "source": "https://unsplash.com/photos/Bg81yWKZlMg",
+    "author": "Harold Hisona",
+    "shows": "A dentist talking with a smiling patient in a bright, modern dental office",
+    "licence": "Unsplash License",
+    "downloaded": "2026-10-12",
+    "files": [
+      "hero-konsulte-800.webp (70 kB)",
+      "hero-konsulte-1600.webp (160 kB)"
+    ]
+  },
+  "kabina": {
+    "source": "https://unsplash.com/photos/Fdku_oMrDvk",
+    "author": "Kari Bjorn Photography",
+    "shows": "A bright dental treatment room with the chair and unit",
+    "licence": "Unsplash License",
+    "downloaded": "2026-10-12",
+    "files": [
+      "kabina-800.webp (51 kB)",
+      "kabina-1600.webp (153 kB)"
+    ]
+  },
+  "kabina-2": {
+    "source": "https://unsplash.com/photos/e7MJLM5VGjY",
+    "author": "Benyamin Bohlouli",
+    "shows": "A modern dental office with chair and equipment",
+    "licence": "Unsplash License",
+    "downloaded": "2026-10-12",
+    "files": [
+      "kabina-2-800.webp (53 kB)",
+      "kabina-2-1600.webp (151 kB)"
+    ]
+  },
+  "rentgen": {
+    "source": "https://unsplash.com/photos/v_2FRXEba94",
+    "author": "Jonathan Borba",
+    "shows": "A dentist examining dental X-ray scans on a light box",
+    "licence": "Unsplash License",
+    "downloaded": "2026-10-12",
+    "files": [
+      "rentgen-800.webp (50 kB)",
+      "rentgen-1600.webp (148 kB)"
+    ]
+  },
+  "para-pas": {
+    "source": "design/directions/B-e-paster.png (the picture in the chosen design direction, cropped)",
+    "author": "unknown (stock picture inside the design mockup)",
+    "shows": "Teeth before and after a hygiene and whitening treatment, labelled BEFORE and AFTER",
+    "licence": "NOT VERIFIED. Illustrative only; replace with a licensed or the clinic's own consented picture before real use.",
+    "added": "2026-10-15",
+    "files": [
+      "para-pas.jpg (50 kB, 626x467)"
+    ]
+  }
+}

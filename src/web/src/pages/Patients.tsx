@@ -245,6 +245,13 @@ export function PatientDetail() {
                       <span className="mt-3 block border-t border-line pt-3 text-sm text-ink-faint">Pa raport</span>
                     ) : null}
                     {v.nextVisitDays ? <span className="mt-2 block text-sm font-medium text-brand-700">Termini i radhës pas {v.nextVisitDays} ditësh</span> : null}
+                    {v.images?.length ? (
+                      <span className="mt-3 flex flex-wrap gap-2" aria-label={`${v.images.length} fotografi të kësaj vizite`}>
+                        {v.images.map((i) => (
+                          <img key={i.id} src={i.url} alt={i.kind === "xray" ? "Rentgen" : "Fotografi"} loading="lazy" className="size-16 rounded-lg border border-line object-cover" />
+                        ))}
+                      </span>
+                    ) : null}
                   </>
                 );
                 const card = "block w-full rounded-2xl border border-line bg-surface p-4 text-left shadow-card";
